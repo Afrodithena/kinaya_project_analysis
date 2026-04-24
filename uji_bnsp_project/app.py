@@ -3,9 +3,8 @@ import joblib
 import pickle
 import os
 
-# Print current directory and files (untuk debug di Streamlit Cloud)
-st.write("Current directory:", os.getcwd())
-st.write("Files in current directory:", os.listdir('.'))
+# Get the directory where this script is located
+script_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Page configuration
 st.set_page_config(page_title="Sales Volume Predictor", layout="wide")
@@ -14,8 +13,11 @@ st.set_page_config(page_title="Sales Volume Predictor", layout="wide")
 @st.cache_resource
 def load_model():
     try:
-        model = joblib.load('sales_volume_model.pkl')
-        with open('reg_features1.pkl', 'rb') as f:
+        model_path = os.path.join(script_dir, 'sales_volume_model.pkl')
+        features_path = os.path.join(script_dir, 'reg_features1.pkl')
+        
+        model = joblib.load(model_path)
+        with open(features_path, 'rb') as f:
             features = pickle.load(f)
         return model, features
     except FileNotFoundError:
@@ -29,7 +31,7 @@ model, features = load_model()
 
 if model is None:
     st.stop()
-
+    
 # Title
 st.title("Fashion Boutique Sales Volume Predictor")
 st.caption("Predict sales volume per brand based on product attributes")

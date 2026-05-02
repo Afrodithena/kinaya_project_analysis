@@ -40,19 +40,30 @@ A collection of data science projects by Kinaya Rafa, featuring financial planni
 ## Quick Start
 
 ```bash
-# Clone repository
+# 1. Clone repository
 git clone https://github.com/Afrodithena/kinaya_project_analysis.git
 cd kinaya_project_analysis
 
-# Install dependencies
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# Run Financial Planner
+# FINANCIAL PLANNER
+
+# 3. Prepare Data
+# Run 'lq45_data_processing.ipynb' in Google Colab first
+# This will generate cleaned stock data for 40 LQ45 companies
+# 4. Run Streamlit
 cd financial_planner
 streamlit run app.py
 
-# Run Olist Logistics (open new terminal)
-cd ../olist_logistic_engine
+# OLIST LOGISTICS
+
+# 3. Prepare Data
+# Run 'olist_data_processing.ipynb' in Google Colab first
+# This will generate all required .parquet files
+# Place generated files into: olist_logistic_engine/data/
+# 4. Run Streamlit 
+cd olist_logistic_engine
 streamlit run app.py
 ```
 ---

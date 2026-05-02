@@ -1,0 +1,26 @@
+# Virtual Environment
+venv/
+olist_logistic_engine/venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# Data files (optional, karena besar)
+*.parquet
+*.pkl
+*.csv
+
+# Local config
+.streamlit/secrets.toml
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,16 @@
+streamlit
+pandas
+numpy
+pydeck
+plotly
+matplotlib
+seaborn
+scikit-learn
+joblib
+shapely
+geopandas
+folium
+branca
+requests
+python-dateutil
+pytz

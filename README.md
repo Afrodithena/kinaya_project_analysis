@@ -23,7 +23,7 @@ A collection of data science projects by Kinaya Rafa, featuring financial planni
 | Project | Description | Key Features |
 |---------|-------------|--------------|
 | **Financial Planner** | LQ45 stock simulation for wedding, KPR, and education goals | Monte Carlo simulation (10,000 paths), Risk profiling (Conservative/Moderate/Aggressive), COVID-19 crisis weighting, Interactive Streamlit dashboard, What-If slider, Probability gauge |
-| **Olist Logistics** | Route performance classification of 412 routes into Fast,Normal,Slow,Critical, XGBoost risk prediction with 78 percent ROC AUC, Supply demand gap analysis across 27 Brazilian states, DBSCAN clustering validation with silhouette score 0.387, What if simulation covering 355 routes and 29,664 orders, Cost benefit analysis proving warehouse investment is not feasible with negative 247.6 percent ROI|
+| **Olist Logistics** | Brazilian e-commerce delivery route analysis to identify infrastructure bottlenecks | Route performance classification of 412 routes into Fast,Normal,Slow,Critical, XGBoost risk prediction with 78 percent ROC AUC, Supply demand gap analysis across 27 Brazilian states, DBSCAN clustering validation with silhouette score 0.387, What if simulation covering 355 routes and 29,664 orders, Cost benefit analysis proving warehouse investment is not feasible with negative 247.6 percent ROI|
 | **BNSP Certification** | Project for Associate Data Scientist certification | End-to-end data pipeline, Missing value imputation (median/mode), Feature engineering (discount_depth, price_ratio, is_on_season), Regression models (Linear Regression, Random Forest, XGBoost), Business recommendations, Exportable model (pickle) |
 
 ---

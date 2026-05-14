@@ -82,6 +82,12 @@ if "risk_profile" not in st.session_state:
     st.session_state.risk_profile = "Moderate"
 if "crisis_weight" not in st.session_state:
     st.session_state.crisis_weight = True
+if "stock_lots" not in st.session_state:
+    st.session_state.stock_lots = {}
+if "stock_purchase_dates" not in st.session_state:
+    st.session_state.stock_purchase_dates = {}
+if "stock_estimated_prices" not in st.session_state:
+    st.session_state.stock_estimated_prices = {}
 
 
 # ============================================
@@ -140,11 +146,6 @@ if st.session_state.step == 1:
 elif st.session_state.step == 2:
     st.markdown(f"### Hello {st.session_state.user_name}. Select Your Portfolio Stocks")
     st.markdown("Choose 2 to 8 stocks for your portfolio. You can adjust the allocation percentage for each stock. The total allocation must sum to 100%.")
-    
-    if "stock_lots" not in st.session_state:
-        st.session_state.stock_lots = {}
-    if "stock_purchase_dates" not in st.session_state:
-        st.session_state.stock_purchase_dates = {}
 
     stocks_by_sector = {}
     for stock in emiten_clean:
@@ -168,25 +169,24 @@ elif st.session_state.step == 2:
                 else:
                     if stock in st.session_state.selected_stocks:
                         st.session_state.selected_stocks.remove(stock)
-
                         if stock in st.session_state.stock_lots:
-                            del st.session_state.stock_lots[stocks]
+                            del st.session_state.stock_lots[stock]
                         if stock in st.session_state.stock_purchase_dates:
-                            del st.session_state.stock_purchase_dates[stocks]
+                            del st.session_state.stock_purchase_dates[stock]
+                        if stock in st.session_state.stock_estimated_prices:
+                            del st.session_state.stock_estimated_prices[stock]
     
     if len(st.session_state.selected_stocks) > 0:
         st.markdown("---")
         st.markdown("### Set Your Investment Details")
         st.markdown("For each selected stock, specify the number of lots and purchase date")
         st.caption("Note: 1 lot = 100 shares")
-
         
         for i, stock in enumerate(st.session_state.selected_stocks):
             with st.container():
                 st.markdown(f"**{stock}**")
-
-                col_lot, col_date, col_alloc = st.columns([2,3,2])
-
+                col_lot, col_date, col_alloc = st.columns([2, 3, 2])
+                
                 with col_lot:
                     current_lot = st.session_state.stock_lots.get(stock, 1)
                     lot_size = st.number_input(
@@ -209,12 +209,14 @@ elif st.session_state.step == 2:
                         key=f"date_{stock}"
                     )
                     st.session_state.stock_purchase_dates[stock] = purchase_date
-
                     try:
                         df_stock = all_stocks_data[stock]
-                        closest_price = df_stock[df_stock.index <= pd.to_datetime(purchase_date)]['close'].iloc[-1] if len(df_stock[df_stock.index <= pd.to_datetime(purchase_date)]) > 0 else df_stock['close'].iloc[0]
+                        mask = df_stock.index <= pd.to_datetime(purchase_date)
+                        if len(df_stock[mask]) > 0:
+                            closest_price = df_stock[mask]['close'].iloc[-1]
+                        else:
+                            closest_price = df_stock['close'].iloc[0]
                         st.caption(f"Est. Price: Rp {closest_price:,.0f}")
-                        st.session_state.stock_estimated_prices = st.session_state.get("stock_estimated_prices", {})
                         st.session_state.stock_estimated_prices[stock] = closest_price
                     except:
                         st.caption("Price not available")
@@ -233,10 +235,8 @@ elif st.session_state.step == 2:
                 
                 st.markdown("---")
         
-        # Hitung total alokasi
         total_alloc = sum(st.session_state.stock_allocations.get(s, 0) for s in st.session_state.selected_stocks)
         
-        # Hitung total investasi berdasarkan lot dan harga estimasi
         total_investment = 0
         for stock in st.session_state.selected_stocks:
             lot = st.session_state.stock_lots.get(stock, 0)
@@ -251,7 +251,6 @@ elif st.session_state.step == 2:
             st.warning(f"Total allocation must be 100%. Current total: {total_alloc:.1f}%")
         else:
             st.success("Allocation balanced!")
-    
     else:
         st.info("Please select at least one stock to continue.")
     
@@ -275,6 +274,7 @@ elif st.session_state.step == 2:
                 st.rerun()
             else:
                 st.error(f"Total allocation must be 100%. Current total: {total_alloc:.1f}%")
+
 
 # ============================================
 # STEP 3: SET GOAL & RISK PROFILE
@@ -378,7 +378,7 @@ elif st.session_state.step == 3:
     
     col_btn1, col_btn2, col_btn3 = st.columns(3)
     with col_btn1:
-        if st.session_state.get("is_existing_investor",False):
+        if st.session_state.get("is_existing_investor", False):
             if st.button("← Back to Portfolio Review", key="back_to_portfolio_from_goal"):
                 st.session_state.step = 5
                 st.rerun()
@@ -398,6 +398,7 @@ elif st.session_state.step == 3:
             st.session_state.step = 4
             st.rerun()
 
+
 # ============================================
 # STEP 4: RESULT
 # ============================================
@@ -413,7 +414,7 @@ elif st.session_state.step == 4:
         weights = [st.session_state.stock_allocations.get(s, 0) / 100 for s in selected_stocks]
     
     if not selected_stocks:
-        st.error("No stocks selected in your portfolio. Please go back and selected at least one stock.")
+        st.error("No stocks selected in your portfolio. Please go back and select at least one stock.")
         if st.button("← Back to Stock Selection"):
             st.session_state.step = 2
             st.rerun()
@@ -522,7 +523,7 @@ elif st.session_state.step == 4:
         {'For a {:.0f}-year horizon, a {:.0f}% allocation to equities is reasonable, but you may want to consider a gradual shift to lower-risk assets as your target date approaches.'.format(time_horizon, 60 if max_drawdown <= 15 else 70 if max_drawdown <= 25 else 85) if time_horizon > 3 else 'For short-term horizons under 3 years, capital preservation should be your priority. Consider keeping 30-50% of your portfolio in cash equivalents 12-18 months before your target date.'}
         """)
         
-        # Goal-specific advisory (PANJANG)
+        # Goal-specific advisory
         st.markdown("#### Goal-Specific Advisory")
         
         if "Wedding" in goal_type:
@@ -596,7 +597,7 @@ elif st.session_state.step == 4:
             **Probability Outlook:** {'Your plan is on solid ground. Maintain your current discipline and review semi-annually.' if prob >= 70 else 'Your plan needs strengthening. Focus on the recommended adjustments above before proceeding with property search.'}
             """)
         
-        else:  # Education
+        else:
             st.markdown(f"""
             **Education Fund Assessment (10-18 year horizon)**
             
@@ -626,7 +627,7 @@ elif st.session_state.step == 4:
             - Leverage compound growth: Your monthly contributions of Rp {monthly_contrib:,.0f} will grow significantly over {time_horizon:.0f} years.
             """)
         
-        # Probability Interpretation (PANJANG)
+        # Probability Interpretation
         st.markdown("#### Understanding Your Probability of Success")
         
         if prob >= 80:
@@ -685,12 +686,11 @@ elif st.session_state.step == 4:
                 st.session_state.step = 5
                 st.rerun()
         else:
-                if st.button("← Back to Modify Plan", key="back_to_modify_btn"):
-                    st.session_state.step = 3
-                    st.rerun()
+            if st.button("← Back to Modify Plan", key="back_to_modify_btn"):
+                st.session_state.step = 3
+                st.rerun()
     with col_btn2:
         if st.button("Save My Plan", key="save_plan_btn"):
-            # Create plan summary
             import json
             from datetime import datetime
             
@@ -710,7 +710,6 @@ elif st.session_state.step == 4:
                 "required_monthly": required_saving
             }
             
-            # Save as JSON
             with open(f"plan_{st.session_state.user_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", "w") as f:
                 json.dump(plan_summary, f, indent=4, default=str)
             
@@ -718,10 +717,11 @@ elif st.session_state.step == 4:
             st.balloons()
     with col_btn3:
         if st.button("Start Over", key="start_over_btn"):
-            # Reset all session state
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
+
+
 # ============================================
 # STEP 5: PORTFOLIO MANAGEMENT (for existing investors)
 # ============================================
@@ -793,55 +793,306 @@ elif st.session_state.step == 5:
                 st.session_state.step = 3
                 st.rerun()
     else:
-        st.info("No positions added yet. Add your stack positions above, or skip to build a new portfolio.")
+        st.info("No positions added yet. Add your stock positions above, or skip to build a new portfolio.")
 
         col_skip1, col_skip2 = st.columns(2)
         with col_skip1:
-            if st.button("Skip - Build New Portfolio", key = "skip_positions"):
+            if st.button("Skip - Build New Portfolio", key="skip_build_new"):
+                st.session_state.is_existing_investor = False
                 st.session_state.step = 2
                 st.rerun()
         with col_skip2:
-            if st.button("Back to Welcome", key="back_to_welcom_btn"):
+            if st.button("Back to Welcome", key="back_to_welcome_step5"):
                 st.session_state.step = 1
                 st.rerun()
 
+
 # ============================================
-# DARK THEME CSS
+# PROFESSIONAL DARK THEME CSS WITH BOXES
 # ============================================
 st.markdown("""
 <style>
-.stApp { background-color: #0f172a; font-family: 'Inter', sans-serif; }
-.main-header { font-size: 2rem; font-weight: 600; color: #ffffff; margin-bottom: 0.5rem; }
-.sub-header { font-size: 1rem; color: #94a3b8; margin-bottom: 2rem; }
-.stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { color: #ffffff !important; }
-.metric-card { background: #1e293b; border-radius: 14px; padding: 1.2rem; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
-.metric-value { font-size: 1.8rem; font-weight: 700; color: #e67e22; }
-.metric-label { font-size: 0.8rem; color: #94a3b8; }
-.stButton button { background-color: #e67e22; color: white; font-weight: 600; border: none; padding: 0.5rem 2rem; border-radius: 10px; transition: 0.2s; }
-.stButton button:hover { background-color: #d35400; transform: translateY(-1px); }
-div[data-testid="stSelectbox"] label { color: #ffffff !important; font-weight: 600; }
-div[data-baseweb="select"] > div { background-color: #1e293b !important; color: #ffffff !important; border-radius: 10px; border: 1px solid #334155; }
-div[data-baseweb="select"] div[role="button"] { color: #ffffff !important; }
-div[data-baseweb="popover"] { background-color: #1e293b !important; }
-div[data-baseweb="popover"] li { background-color: #1e293b; color: #ffffff !important; }
-div[data-baseweb="popover"] li:hover { background-color: #334155 !important; }
-div[data-testid="stCheckbox"] label { color: #ffffff !important; }
-div[data-testid="stCheckbox"] label span { color: #ffffff !important; }
-div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input { color: #ffffff !important; background-color: #1e293b !important; border: 1px solid #334155 !important; border-radius: 8px; }
-div[data-testid="stSlider"] label { color: #ffffff !important; }
-div[data-testid="stRadio"] label { color: #ffffff !important; }
-.stTabs [data-baseweb="tab-list"] button p { color: #ffffff !important; }
-.stTabs [data-baseweb="tab-highlight"] { background-color: #e67e22; }
-section[data-testid="stSidebar"] { background-color: #0f172a; }
-section[data-testid="stSidebar"] p { color: #ffffff !important; }
-.stProgress > div > div { background-color: #e67e22; }
-.stExpander details summary p { color: #ffffff !important; }
-.stExpander { border: 1px solid #334155 !important; border-radius: 8px !important; }
-.stAlert { background-color: #1e293b !important; }
-.stAlert p { color: #ffffff !important; }
-.stInfo { background-color: #1e3a5f !important; }
-.stInfo p { color: #ffffff !important; }
-div[data-testid="column"] p { color: #ffffff !important; }
+    /* Base Theme */
+    .stApp {
+        background: linear-gradient(135deg, #0a0f1a 0%, #0f1420 50%, #0a0f1a 100%);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        max-width: 1400px;
+    }
+    
+    /* Typography */
+    h1 {
+        font-size: 2.2rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        letter-spacing: -0.01em;
+        margin-bottom: 0.5rem;
+    }
+    
+    h2 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #f1f5f9;
+        margin-top: 1.5rem;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #334155;
+    }
+    
+    h3 {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: #e2e8f0;
+        margin-top: 1rem;
+        margin-bottom: 0.75rem;
+    }
+    
+    p, li, .stMarkdown {
+        color: #cbd5e1;
+        line-height: 1.5;
+    }
+    
+    /* Metric Cards */
+    div[data-testid="stMetric"] {
+        background: linear-gradient(135deg, #1e293b 0%, #162236 100%);
+        border-radius: 16px;
+        padding: 1rem;
+        border: 1px solid #334155;
+        transition: all 0.3s ease;
+    }
+    
+    div[data-testid="stMetric"]:hover {
+        border-color: #e67e22;
+        transform: translateY(-2px);
+    }
+    
+    div[data-testid="stMetric"] label {
+        color: #94a3b8 !important;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        color: #f97316 !important;
+        font-size: 1.8rem;
+        font-weight: 700;
+    }
+    
+    /* Buttons */
+    .stButton button {
+        background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+        color: white;
+        font-weight: 600;
+        border: none;
+        padding: 0.6rem 1.5rem;
+        border-radius: 12px;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        font-size: 0.875rem;
+        letter-spacing: 0.02em;
+    }
+    
+    .stButton button:hover {
+        background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(230, 126, 34, 0.3);
+    }
+    
+    /* Input Fields */
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stDateInput"] input {
+        background-color: #1e293b !important;
+        border: 1px solid #334155 !important;
+        border-radius: 10px !important;
+        padding: 0.5rem 1rem !important;
+        color: #f1f5f9 !important;
+        font-size: 0.875rem !important;
+    }
+    
+    div[data-testid="stTextInput"] input:focus,
+    div[data-testid="stNumberInput"] input:focus {
+        border-color: #e67e22 !important;
+        box-shadow: 0 0 0 2px rgba(230, 126, 34, 0.2) !important;
+    }
+    
+    div[data-testid="stTextInput"] label,
+    div[data-testid="stNumberInput"] label,
+    div[data-testid="stSelectbox"] label {
+        color: #94a3b8 !important;
+        font-weight: 500 !important;
+        font-size: 0.75rem !important;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    
+    /* Select Box */
+    div[data-baseweb="select"] > div {
+        background-color: #1e293b !important;
+        border: 1px solid #334155 !important;
+        border-radius: 10px !important;
+    }
+    
+    div[data-baseweb="select"] > div:hover {
+        border-color: #e67e22 !important;
+    }
+    
+    div[data-baseweb="select"] div[role="button"] {
+        color: #f1f5f9 !important;
+    }
+    
+    /* Slider */
+    div[data-testid="stSlider"] > div > div > div > div {
+        background: linear-gradient(90deg, #e67e22, #f97316) !important;
+    }
+    
+    div[data-testid="stSlider"] > div > div > div > div > div {
+        background-color: #f97316 !important;
+        border-color: #f97316 !important;
+    }
+    
+    /* Progress Bar */
+    .stProgress > div {
+        background-color: #1e293b !important;
+        border-radius: 20px;
+        height: 8px;
+    }
+    
+    .stProgress > div > div {
+        background: linear-gradient(90deg, #e67e22, #f97316) !important;
+        border-radius: 20px;
+    }
+    
+    /* Expander */
+    .stExpander {
+        border: 1px solid #334155 !important;
+        border-radius: 12px !important;
+        background-color: rgba(30, 41, 59, 0.5) !important;
+    }
+    
+    .stExpander details summary p {
+        color: #f1f5f9 !important;
+        font-weight: 500;
+    }
+    
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0a0f1a 0%, #0f1420 100%);
+        border-right: 1px solid #1e293b;
+    }
+    
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] label {
+        color: #94a3b8 !important;
+    }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.5rem;
+        background-color: #0f172a;
+        padding: 0.5rem;
+        border-radius: 12px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+    }
+    
+    .stTabs [data-baseweb="tab"] p {
+        color: #94a3b8 !important;
+        font-weight: 500;
+    }
+    
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background: linear-gradient(135deg, #e67e22, #d35400);
+    }
+    
+    .stTabs [data-baseweb="tab"][aria-selected="true"] p {
+        color: white !important;
+    }
+    
+    /* Data Frame */
+    .stDataFrame {
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid #334155;
+    }
+    
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: #1e293b;
+        border-radius: 10px;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: #475569;
+        border-radius: 10px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: #e67e22;
+    }
+    
+    /* Alert boxes */
+    .stAlert {
+        border-radius: 12px !important;
+        border-left: 4px solid !important;
+    }
+    
+    .stAlert p {
+        color: #f1f5f9 !important;
+    }
+    
+    .stAlert[data-testid="stAlertSuccess"] {
+        background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.05)) !important;
+        border-left-color: #22c55e !important;
+    }
+    
+    .stAlert[data-testid="stAlertError"] {
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05)) !important;
+        border-left-color: #ef4444 !important;
+    }
+    
+    .stAlert[data-testid="stAlertWarning"] {
+        background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.05)) !important;
+        border-left-color: #f59e0b !important;
+    }
+    
+    .stAlert[data-testid="stAlertInfo"] {
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05)) !important;
+        border-left-color: #3b82f6 !important;
+    }
+    
+    .stInfo {
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05)) !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(59, 130, 246, 0.3) !important;
+    }
+    
+    hr {
+        border-color: #334155;
+        margin: 1.5rem 0;
+    }
+    
+    div[data-testid="column"] {
+        background: rgba(15, 23, 42, 0.3);
+        border-radius: 12px;
+        padding: 0.75rem;
+        margin: 0.25rem;
+    }
 </style>
 """, unsafe_allow_html=True)
-

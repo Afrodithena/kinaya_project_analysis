@@ -14,3 +14,4 @@ branca
 requests
 python-dateutil
 pytz
+statsmodels

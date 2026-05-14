@@ -557,7 +557,7 @@ elif page == "Route Analytics":
         st.markdown(f"**{problematic} routes** require intervention")
         st.markdown(f"Affecting approximately **{(problematic / total_routes * 100):.1f}%** of network")
     
-    # Donut Chart Performance Distribution (Added)
+    # Donut Chart Performance Distribution
     st.markdown("### Performance Distribution Overview")
     
     if 'performance' in df_network.columns:
@@ -613,7 +613,7 @@ elif page == "Route Analytics":
             simple_top.columns = ['Origin', 'Destination', 'Order Count']
             st.dataframe(simple_top, use_container_width=True)
     
-    # Top 10 Slowest Routes (Added)
+    # Top 10 Slowest Routes
     st.markdown("### Top 10 Slowest Routes")
     
     if 'avg_delivery_days' in df_network.columns and 'seller_state' in df_network.columns:
@@ -655,7 +655,7 @@ elif page == "Route Analytics":
             fig.update_traces(textposition='outside')
             st.plotly_chart(fig, use_container_width=True)
     
-    # Box Plot Delivery Time by Performance (Added)
+    # Box Plot Delivery Time by Performance
     st.markdown("### Delivery Time Distribution by Performance Tier")
     
     if 'performance' in df_network.columns and 'avg_delivery_days' in df_network.columns:
@@ -668,7 +668,7 @@ elif page == "Route Analytics":
         fig.update_layout(height=450)
         st.plotly_chart(fig, use_container_width=True)
     
-    # Treemap Order Volume by State (Added)
+    # Treemap Order Volume by State
     st.markdown("### Order Volume Distribution by State")
     
     if 'seller_state' in df_network.columns and 'order_count' in df_network.columns:
@@ -683,15 +683,17 @@ elif page == "Route Analytics":
         fig.update_layout(height=500)
         st.plotly_chart(fig, use_container_width=True)
     
-    # Distance vs Delivery Time (with Trendline)
+    # Distance vs Delivery Time
     st.markdown("### Distance vs Delivery Time Analysis")
     
     if 'distance_km' in df_network.columns and 'avg_delivery_days' in df_network.columns:
-        fig = px.scatter(df_network, x='distance_km', y='avg_delivery_days', color='performance' if 'performance' in df_network.columns else None,
-                         color_discrete_map={'Fast': '#2ecc71', 'Normal': '#3498db', 'Slow': '#f39c12', 'Critical': '#e74c3c'},
-                         size='order_count', size_max=15, trendline='ols',
+        fig = px.scatter(df_network, x='distance_km', y='avg_delivery_days', 
+                         color='performance' if 'performance' in df_network.columns else None,
+                         color_discrete_map={'Fast': '#2ecc71', 'Normal': '#3498db', 
+                                             'Slow': '#f39c12', 'Critical': '#e74c3c'},
+                         size='order_count', size_max=15,
                          hover_data=['seller_state', 'customer_state'],
-                         title='Relationship Between Distance and Delivery Time (with Regression Line)',
+                         title='Relationship Between Distance and Delivery Time',
                          labels={'distance_km': 'Distance (km)', 'avg_delivery_days': 'Average Delivery Time (days)'})
         fig.update_layout(height=500)
         st.plotly_chart(fig, use_container_width=True)
@@ -804,77 +806,228 @@ elif page == "Performance Reports":
     st.markdown("# Performance Reports")
     st.markdown("Downloadable analytics, performance summaries, and executive reports")
     
-    # Summary Statistics
-    st.markdown("### Executive Summary")
+    # ============================================
+    # FILTERS (Adjustable)
+    # ============================================
+    st.markdown("### Filters")
     
-    col1, col2, col3 = st.columns(3)
+    col_filter1, col_filter2, col_filter3 = st.columns(3)
     
-    with col1:
-        st.markdown("#### Network Overview")
-        st.markdown(f"- **Total Routes Analyzed:** {total_routes:,}")
-        st.markdown(f"- **Total Orders:** {total_orders:,}")
-        st.markdown(f"- **Average Delivery Time:** {avg_delivery:.1f} days")
-        st.markdown(f"- **States Covered:** {df_network['seller_state'].nunique() if 'seller_state' in df_network.columns else 27}")
-    
-    with col2:
-        st.markdown("#### Performance Distribution")
+    with col_filter1:
         if 'performance' in df_network.columns:
-            for perf in ['Fast', 'Normal', 'Slow', 'Critical']:
-                count = len(df_network[df_network['performance'] == perf])
-                pct = (count / total_routes * 100) if total_routes > 0 else 0
-                st.markdown(f"- **{perf}:** {count} routes ({pct:.1f}%)")
+            perf_options = ['All'] + sorted(df_network['performance'].unique().tolist())
+            selected_perf = st.selectbox("Filter by Performance", perf_options)
     
-    with col3:
-        st.markdown("#### Key Insights")
-        st.markdown("- Distance is the primary predictor of delivery delay")
-        st.markdown("- Peak season months perform better than average")
-        st.markdown("- Northeast region has structural supply gap")
-        st.markdown("- 89 percent of orders arrive earlier than estimated")
+    with col_filter2:
+        if 'seller_state' in df_network.columns:
+            state_options = ['All'] + sorted(df_network['seller_state'].unique().tolist())
+            selected_state = st.selectbox("Filter by Origin State", state_options)
     
-    # Download Reports Section
-    st.markdown("### Export Reports")
+    with col_filter3:
+        if 'order_count' in df_network.columns:
+            max_orders = int(df_network['order_count'].max())
+            min_orders = st.slider("Minimum Order Count", 0, max_orders, 0)
     
-    export_col1, export_col2, export_col3 = st.columns(3)
+    # Apply filters
+    filtered_df = df_network.copy()
     
-    with export_col1:
-        csv_data = df_network.to_csv(index=False)
-        st.download_button(label="Download Route Analysis (CSV)", data=csv_data, file_name="route_analysis.csv", mime="text/csv")
+    if selected_perf != 'All':
+        filtered_df = filtered_df[filtered_df['performance'] == selected_perf]
     
-    with export_col2:
-        if 'performance' in df_network.columns:
-            problematic_routes = df_network[df_network['performance'].isin(['Slow', 'Critical'])]
-            csv_problematic = problematic_routes.to_csv(index=False)
-            st.download_button(label="Download Problematic Routes (CSV)", data=csv_problematic, file_name="problematic_routes.csv", mime="text/csv")
+    if selected_state != 'All':
+        filtered_df = filtered_df[filtered_df['seller_state'] == selected_state]
     
-    with export_col3:
-        summary_data = {
-            'total_routes': int(total_routes),
-            'total_orders': int(total_orders),
-            'avg_delivery_days': float(avg_delivery),
-            'fast_routes': int(len(df_network[df_network['performance'] == 'Fast'])) if 'performance' in df_network.columns else 0,
-            'critical_routes': int(len(df_network[df_network['performance'] == 'Critical'])) if 'performance' in df_network.columns else 0,
-            'problematic_routes': int(len(df_network[df_network['performance'].isin(['Slow', 'Critical'])]) if 'performance' in df_network.columns else 0)
-        }
-        json_data = json.dumps(summary_data, indent=2)
-        st.download_button(label="Download Summary Report (JSON)", data=json_data, file_name="performance_summary.json", mime="application/json")
+    if min_orders > 0:
+        filtered_df = filtered_df[filtered_df['order_count'] >= min_orders]
     
-    # Performance Charts for Report
+    st.caption(f"Showing {len(filtered_df)} routes out of {len(df_network)} total")
+    
+    st.markdown("---")
+    
+    # ============================================
+    # CUSTOMIZABLE METRICS
+    # ============================================
+    st.markdown("### Customizable Metrics")
+    
+    metric_options = {
+        "Total Routes": len(filtered_df),
+        "Total Orders": filtered_df['order_count'].sum() if 'order_count' in filtered_df.columns else 0,
+        "Avg Delivery Days": filtered_df['avg_delivery_days'].mean() if 'avg_delivery_days' in filtered_df.columns else 0,
+        "Fast Routes": len(filtered_df[filtered_df['performance'] == 'Fast']) if 'performance' in filtered_df.columns else 0,
+        "Slow Routes": len(filtered_df[filtered_df['performance'] == 'Slow']) if 'performance' in filtered_df.columns else 0,
+        "Critical Routes": len(filtered_df[filtered_df['performance'] == 'Critical']) if 'performance' in filtered_df.columns else 0,
+        "Avg Distance (km)": filtered_df['distance_km'].mean() if 'distance_km' in filtered_df.columns else 0,
+        "Unique Seller States": filtered_df['seller_state'].nunique() if 'seller_state' in filtered_df.columns else 0,
+        "Unique Buyer States": filtered_df['customer_state'].nunique() if 'customer_state' in filtered_df.columns else 0,
+    }
+    
+    selected_metrics = st.multiselect(
+        "Select metrics to display",
+        options=list(metric_options.keys()),
+        default=['Total Routes', 'Total Orders', 'Avg Delivery Days']
+    )
+    
+    if selected_metrics:
+        metric_cols = st.columns(len(selected_metrics))
+        for i, metric in enumerate(selected_metrics):
+            with metric_cols[i]:
+                st.metric(metric, f"{metric_options[metric]:,}")
+    
+    st.markdown("---")
+    
+    # ============================================
+    # CUSTOMIZABLE TABLE
+    # ============================================
+    st.markdown("### Customizable Data View")
+    
+    available_cols = ['seller_state', 'customer_state', 'order_count', 'avg_delivery_days', 'performance', 'distance_km']
+    available_cols = [c for c in available_cols if c in df_network.columns]
+    
+    selected_cols = st.multiselect(
+        "Select columns to display",
+        options=available_cols,
+        default=['seller_state', 'customer_state', 'order_count', 'avg_delivery_days', 'performance']
+    )
+    
+    if selected_cols:
+        display_df = filtered_df[selected_cols].head(100)
+        st.dataframe(display_df, use_container_width=True)
+    
+    st.markdown("---")
+    
+    # ============================================
+    # WHAT-IF SIMULATION RESULTS
+    # ============================================
+    st.markdown("### What-If Simulation Results")
+    
+    simulation = data.get('simulation')
+    
+    if simulation is not None and len(simulation) > 0:
+        st.markdown("Simulation of warehouse impact on delivery performance based on DBSCAN clustering results.")
+        
+        sim_col1, sim_col2, sim_col3 = st.columns(3)
+        
+        with sim_col1:
+            routes_simulated = len(simulation)
+            st.metric("Routes Simulated", f"{routes_simulated:,}")
+        
+        with sim_col2:
+            if 'distance_saved_km' in simulation.columns:
+                worsened = len(simulation[simulation['distance_saved_km'] < 0])
+                st.metric("Routes Worsened", f"{worsened}", delta="Negative impact")
+            else:
+                st.metric("Routes Worsened", "N/A")
+        
+        with sim_col3:
+            if 'distance_saved_km' in simulation.columns:
+                improved = len(simulation[simulation['distance_saved_km'] > 0])
+                st.metric("Routes Improved", f"{improved}")
+            else:
+                st.metric("Routes Improved", "0")
+        
+        st.warning("""
+        **Simulation Finding:** Zero routes showed improvement. Warehouses placed at DBSCAN centroids increase routing distance.
+        
+        **Conclusion:** Centroids are statistically correct but logistically wrong. Warehouse investment is not recommended at current order volume.
+        """)
+        
+        # Show simulation data table
+        with st.expander("View Simulation Details"):
+            sim_display_cols = ['seller_state', 'customer_state', 'distance_km', 'estimated_new_distance', 'distance_saved']
+            available_sim_cols = [c for c in sim_display_cols if c in simulation.columns]
+            if available_sim_cols:
+                st.dataframe(simulation[available_sim_cols].head(20), use_container_width=True)
+            else:
+                st.dataframe(simulation.head(20), use_container_width=True)
+    else:
+        st.info("What-if simulation data not available. Run the what-if simulation in the notebook first.")
+    
+    st.markdown("---")
+    
+    # ============================================
+    # COMPARE TWO PERFORMANCE TIERS
+    # ============================================
+    st.markdown("### Compare Performance Tiers")
+    
+    if 'performance' in df_network.columns:
+        perf_list = df_network['performance'].unique().tolist()
+        
+        col_comp1, col_comp2 = st.columns(2)
+        
+        with col_comp1:
+            tier1 = st.selectbox("Select first tier", perf_list, index=0)
+        with col_comp2:
+            tier2 = st.selectbox("Select second tier", perf_list, index=len(perf_list)-1 if len(perf_list) > 1 else 0)
+        
+        if tier1 and tier2 and tier1 != tier2:
+            df_tier1 = df_network[df_network['performance'] == tier1]
+            df_tier2 = df_network[df_network['performance'] == tier2]
+            
+            comp_data = {
+                'Metric': ['Number of Routes', 'Avg Delivery Days', 'Avg Distance (km)', 'Total Orders'],
+                tier1: [
+                    len(df_tier1),
+                    df_tier1['avg_delivery_days'].mean() if 'avg_delivery_days' in df_tier1.columns else 0,
+                    df_tier1['distance_km'].mean() if 'distance_km' in df_tier1.columns else 0,
+                    df_tier1['order_count'].sum() if 'order_count' in df_tier1.columns else 0
+                ],
+                tier2: [
+                    len(df_tier2),
+                    df_tier2['avg_delivery_days'].mean() if 'avg_delivery_days' in df_tier2.columns else 0,
+                    df_tier2['distance_km'].mean() if 'distance_km' in df_tier2.columns else 0,
+                    df_tier2['order_count'].sum() if 'order_count' in df_tier2.columns else 0
+                ]
+            }
+            
+            comp_df = pd.DataFrame(comp_data)
+            st.dataframe(comp_df, use_container_width=True)
+    
+    st.markdown("---")
+    
+    # ============================================
+    # CUSTOMIZABLE EXPORT
+    # ============================================
+    st.markdown("### Export Data")
+    
+    export_cols = st.multiselect(
+        "Select columns to export",
+        options=available_cols,
+        default=available_cols[:3] if len(available_cols) >= 3 else available_cols
+    )
+    
+    export_format = st.radio("Export format", ["CSV", "JSON"], horizontal=True)
+    
+    if st.button("Generate Export"):
+        export_df = filtered_df[export_cols] if export_cols else filtered_df
+        
+        if export_format == "CSV":
+            csv = export_df.to_csv(index=False)
+            st.download_button("Download CSV", csv, "route_data.csv", "text/csv")
+        else:
+            json_str = export_df.to_json(orient='records', indent=2)
+            st.download_button("Download JSON", json_str, "route_data.json", "application/json")
+    
+    # ============================================
+    # PERFORMANCE CHARTS
+    # ============================================
     st.markdown("### Visual Analytics for Report")
     
     chart_col1, chart_col2 = st.columns(2)
     
     with chart_col1:
-        if 'performance' in df_network.columns:
-            perf_counts = df_network['performance'].value_counts()
+        if 'performance' in filtered_df.columns:
+            perf_counts = filtered_df['performance'].value_counts()
             fig = px.pie(values=perf_counts.values, names=perf_counts.index, title='Route Performance Distribution',
-                         color=perf_counts.index, color_discrete_map={'Fast': '#2ecc71', 'Normal': '#3498db', 'Slow': '#f39c12', 'Critical': '#e74c3c'})
+                         color=perf_counts.index, color_discrete_map={'Fast': '#2ecc71', 'Normal': '#3498db', 
+                                                                     'Slow': '#f39c12', 'Critical': '#e74c3c'})
             st.plotly_chart(fig, use_container_width=True)
     
     with chart_col2:
-        if 'avg_delivery_days' in df_network.columns:
-            fig = px.box(df_network, y='avg_delivery_days', title='Delivery Time Distribution',
-                         color='performance' if 'performance' in df_network.columns else None,
-                         color_discrete_map={'Fast': '#2ecc71', 'Normal': '#3498db', 'Slow': '#f39c12', 'Critical': '#e74c3c'},
+        if 'avg_delivery_days' in filtered_df.columns:
+            fig = px.box(filtered_df, y='avg_delivery_days', title='Delivery Time Distribution',
+                         color='performance' if 'performance' in filtered_df.columns else None,
+                         color_discrete_map={'Fast': '#2ecc71', 'Normal': '#3498db', 
+                                             'Slow': '#f39c12', 'Critical': '#e74c3c'},
                          labels={'avg_delivery_days': 'Delivery Time (days)'})
             st.plotly_chart(fig, use_container_width=True)
 

@@ -386,14 +386,10 @@ elif page == "Warehouse Optimization":
     if warehouses is not None and len(warehouses) > 0:
         st.markdown("### Recommended Warehouse Locations")
         
-        warehouse_cols = ['warehouse_id', 'lat', 'lng', 'cluster_size'] if 'cluster_size' in warehouses.columns else ['warehouse_id', 'lat', 'lng']
-        available_cols = [c for c in warehouse_cols if c in warehouses.columns]
+        # Display full warehouse data as table
+        st.dataframe(warehouses, use_container_width=True)
         
-        if available_cols:
-            st.dataframe(warehouses[available_cols], use_container_width=True)
-        
-        # Simple map for warehouse locations dengan FALLBACK
-        st.markdown("#### Geographic Distribution")
+        # Show coordinate info if available (without map)
         lat_col = None
         lng_col = None
         for col in warehouses.columns:
@@ -404,9 +400,9 @@ elif page == "Warehouse Optimization":
                 lng_col = col
         
         if lat_col and lng_col:
-            st.map(warehouses[[lat_col, lng_col]])
-        else:
-            st.warning("Warehouse coordinates not available for map display")
+            st.caption(f"Location coordinates: using columns '{lat_col}' and '{lng_col}'")
+    else:
+        st.info("No warehouse candidate data available. Run DBSCAN clustering first.")
     
     # Priority Routes for Intervention
     st.markdown("### Priority Routes for Warehouse Intervention")

@@ -246,169 +246,6 @@ on_time = len(df_network[df_network['avg_delivery_days'] <= 15]) if 'avg_deliver
 on_time_pct = (on_time / total_routes * 100) if total_routes > 0 else 0
 
 # ============================================
-# MAP VIEW FUNCTION (Built-in PyDeck)
-# ============================================
-def render_map_view():
-    """Render interactive map with PyDeck arc layers"""
-    st.markdown("# Network Map")
-    st.markdown("Interactive visualization of delivery routes across Brazil")
-    
-    # Prepare data for map
-    map_data = df_network.copy()
-    
-    # Check if coordinate columns exist
-    has_coords = all(col in map_data.columns for col in ['seller_lat', 'seller_lng', 'customer_lat', 'customer_lng'])
-    
-    if not has_coords:
-        st.warning("Coordinate data not available. Showing route summary instead.")
-        st.dataframe(map_data[['seller_state', 'customer_state', 'order_count', 'avg_delivery_days', 'performance']].head(20), use_container_width=True)
-        return
-    
-    # Drop rows with missing coordinates
-    map_data = map_data.dropna(subset=['seller_lat', 'seller_lng', 'customer_lat', 'customer_lng'])
-    
-    if map_data.empty:
-        st.warning("No routes with valid coordinates found.")
-        return
-    
-    # Limit for performance
-    if len(map_data) > 500:
-        map_data = map_data.nlargest(500, 'order_count')
-        st.caption(f"Showing top 500 routes by order volume (total {len(df_network)} routes available)")
-    
-    # ============================================
-    # PREPARE TOOLTIP HTML (Pre-formatted)
-    # ============================================
-    # Buat kolom baru untuk tooltip yang sudah diformat
-    map_data['tooltip_html'] = map_data.apply(
-        lambda row: f"""
-        <div style="background: #1e293b; padding: 10px 14px; border-radius: 8px; 
-                    border-left: 3px solid #f97316; font-family: monospace;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
-            <b style="color: #f97316; font-size: 14px;">{row.get('seller_state', '?')} → {row.get('customer_state', '?')}</b><br>
-            <span style="color: #94a3b8;">Orders:</span> <b style="color: white;">{row.get('order_count', 0):,}</b><br>
-            <span style="color: #94a3b8;">Delivery:</span> <b style="color: white;">{row.get('avg_delivery_days', 0):.1f} days</b><br>
-            <span style="color: #94a3b8;">Performance:</span> <b style="color: #f97316;">{row.get('performance', 'Unknown')}</b>
-        </div>
-        """,
-        axis=1
-    )
-    
-    # Color mapping for performance
-    color_map = {
-        'Fast': [16, 185, 129, 200],
-        'Normal': [245, 158, 11, 210],
-        'Slow': [249, 115, 22, 220],
-        'Critical': [239, 68, 68, 230]
-    }
-    
-    if 'performance' in map_data.columns:
-        map_data['color'] = map_data['performance'].map(lambda x: color_map.get(x, [100, 116, 139, 180]))
-    else:
-        map_data['color'] = [100, 116, 139, 180]
-    
-    # Calculate line width based on order volume
-    if 'order_count' in map_data.columns and map_data['order_count'].max() > 0:
-        max_orders = map_data['order_count'].max()
-        map_data['line_width'] = (map_data['order_count'] / max_orders * 8).clip(2, 8)
-    else:
-        map_data['line_width'] = 3
-    
-    # Create Arc Layer
-    arc_layer = pdk.Layer(
-        'ArcLayer',
-        data=map_data,
-        get_source_position=['seller_lng', 'seller_lat'],
-        get_target_position=['customer_lng', 'customer_lat'],
-        get_source_color='color',
-        get_target_color='color',
-        get_width='line_width',
-        pickable=True,
-        auto_highlight=True
-    )
-    
-    # Add state centroid layer if available
-    layers = [arc_layer]
-    
-    if state_centroids is not None and not state_centroids.empty:
-        if 'lat' in state_centroids.columns and 'lng' in state_centroids.columns:
-            scatter_layer = pdk.Layer(
-                'ScatterplotLayer',
-                data=state_centroids,
-                get_position=['lng', 'lat'],
-                get_radius=20000,
-                get_fill_color=[100, 116, 139, 80],
-                get_line_color=[71, 85, 105, 180],
-                pickable=False
-            )
-            layers.append(scatter_layer)
-    
-    # Add warehouse layer if available
-    if warehouses is not None and not warehouses.empty:
-        lat_col = None
-        lng_col = None
-        for col in warehouses.columns:
-            col_lower = col.lower()
-            if col_lower in ['lat', 'latitude']:
-                lat_col = col
-            if col_lower in ['lng', 'lon', 'long', 'longitude']:
-                lng_col = col
-        
-        if lat_col and lng_col:
-            warehouse_layer = pdk.Layer(
-                'ScatterplotLayer',
-                data=warehouses,
-                get_position=[lng_col, lat_col],
-                get_radius=15000,
-                get_fill_color=[249, 115, 22, 200],
-                get_line_color=[234, 88, 12, 255],
-                pickable=True
-            )
-            layers.append(warehouse_layer)
-    
-    # View state centered on Brazil
-    view_state = pdk.ViewState(
-        latitude=-14.2350,
-        longitude=-51.9253,
-        zoom=3.5,
-        pitch=40,
-        bearing=0
-    )
-    
-    # ============================================
-    # TOOLTIP - Menggunakan kolom yang sudah diformat
-    # ============================================
-    tooltip = {
-        "html": "{tooltip_html}",
-        "style": {"backgroundColor": "transparent"}
-    }
-    
-    # Map style (free CartoDB style)
-    map_style = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
-    
-    # Create deck
-    deck = pdk.Deck(
-        map_style=map_style,
-        initial_view_state=view_state,
-        layers=layers,
-        tooltip=tooltip
-    )
-    
-    st.pydeck_chart(deck, use_container_width=True)
-    
-    # Route statistics
-    with st.expander("Route Statistics"):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Routes in Map", f"{len(map_data):,}")
-        with col2:
-            total_orders_val = map_data['order_count'].sum() if 'order_count' in map_data.columns else 0
-            st.metric("Total Orders", f"{total_orders_val:,}")
-        with col3:
-            avg_delivery_val = map_data['avg_delivery_days'].mean() if 'avg_delivery_days' in map_data.columns else 0
-            st.metric("Avg Delivery", f"{avg_delivery_val:.1f} days")
-            
-# ============================================
 # SIDEBAR NAVIGATION WITH METRICS BOXES
 # ============================================
 with st.sidebar:
@@ -495,6 +332,171 @@ with st.sidebar:
     st.caption("Powered by Olist")
 
 # ============================================
+# MAP VIEW FUNCTION (Built-in PyDeck)
+# ============================================
+def render_map_view():
+    """Render interactive map with PyDeck arc layers"""
+    st.markdown("# Network Map")
+    st.markdown("Interactive visualization of delivery routes across Brazil")
+    
+    # Prepare data for map
+    map_data = df_network.copy()
+    
+    # Check if coordinate columns exist
+    has_coords = all(col in map_data.columns for col in ['seller_lat', 'seller_lng', 'customer_lat', 'customer_lng'])
+    
+    if not has_coords:
+        st.warning("Coordinate data not available. Showing route summary instead.")
+        st.dataframe(map_data[['seller_state', 'customer_state', 'order_count', 'avg_delivery_days', 'performance']].head(20), use_container_width=True)
+        return
+    
+    # Drop rows with missing coordinates
+    map_data = map_data.dropna(subset=['seller_lat', 'seller_lng', 'customer_lat', 'customer_lng'])
+    
+    if map_data.empty:
+        st.warning("No routes with valid coordinates found.")
+        return
+    
+    # Limit for performance
+    if len(map_data) > 500:
+        map_data = map_data.nlargest(500, 'order_count')
+        st.caption(f"Showing top 500 routes by order volume (total {len(df_network)} routes available)")
+    
+    # ============================================
+    # PREPARE TOOLTIP HTML (Pre-formatted untuk ROUTES)
+    # ============================================
+    map_data['tooltip_html'] = map_data.apply(
+        lambda row: f"""
+        <div style="background: #1e293b; padding: 10px 14px; border-radius: 8px; 
+                    border-left: 3px solid #f97316; font-family: monospace;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+            <b style="color: #f97316; font-size: 14px;">{row.get('seller_state', '?')} → {row.get('customer_state', '?')}</b><br>
+            <span style="color: #94a3b8;">Orders:</span> <b style="color: white;">{row.get('order_count', 0):,}</b><br>
+            <span style="color: #94a3b8;">Delivery:</span> <b style="color: white;">{row.get('avg_delivery_days', 0):.1f} days</b><br>
+            <span style="color: #94a3b8;">Performance:</span> <b style="color: #f97316;">{row.get('performance', 'Unknown')}</b>
+        </div>
+        """,
+        axis=1
+    )
+    
+    # Color mapping for performance
+    color_map = {
+        'Fast': [16, 185, 129, 200],
+        'Normal': [245, 158, 11, 210],
+        'Slow': [249, 115, 22, 220],
+        'Critical': [239, 68, 68, 230]
+    }
+    
+    if 'performance' in map_data.columns:
+        map_data['color'] = map_data['performance'].map(lambda x: color_map.get(x, [100, 116, 139, 180]))
+    else:
+        map_data['color'] = [100, 116, 139, 180]
+    
+    # Calculate line width based on order volume
+    if 'order_count' in map_data.columns and map_data['order_count'].max() > 0:
+        max_orders = map_data['order_count'].max()
+        map_data['line_width'] = (map_data['order_count'] / max_orders * 8).clip(2, 8)
+    else:
+        map_data['line_width'] = 3
+    
+    # Create Arc Layer (for routes)
+    arc_layer = pdk.Layer(
+        'ArcLayer',
+        data=map_data,
+        get_source_position=['seller_lng', 'seller_lat'],
+        get_target_position=['customer_lng', 'customer_lat'],
+        get_source_color='color',
+        get_target_color='color',
+        get_width='line_width',
+        pickable=True,
+        auto_highlight=True
+    )
+    
+    # Start layers with arc layer
+    layers = [arc_layer]
+    
+    # Add state centroid layer if available (not pickable)
+    if state_centroids is not None and not state_centroids.empty:
+        if 'lat' in state_centroids.columns and 'lng' in state_centroids.columns:
+            scatter_layer = pdk.Layer(
+                'ScatterplotLayer',
+                data=state_centroids,
+                get_position=['lng', 'lat'],
+                get_radius=20000,
+                get_fill_color=[100, 116, 139, 80],
+                get_line_color=[71, 85, 105, 180],
+                pickable=False
+            )
+            layers.append(scatter_layer)
+    
+    # ============================================
+    # ADD WAREHOUSE LAYER (pickable=False - NO TOOLTIP)
+    # ============================================
+    if warehouses is not None and not warehouses.empty:
+        lat_col = None
+        lng_col = None
+        for col in warehouses.columns:
+            col_lower = col.lower()
+            if col_lower in ['lat', 'latitude']:
+                lat_col = col
+            if col_lower in ['lng', 'lon', 'long', 'longitude']:
+                lng_col = col
+        
+        if lat_col and lng_col:
+            warehouse_layer = pdk.Layer(
+                'ScatterplotLayer',
+                data=warehouses,
+                get_position=[lng_col, lat_col],
+                get_radius=15000,
+                get_fill_color=[249, 115, 22, 200],
+                get_line_color=[234, 88, 12, 255],
+                pickable=False  # Tidak bisa di-hover, jadi tidak error tooltip
+            )
+            layers.append(warehouse_layer)
+    
+    # View state centered on Brazil
+    view_state = pdk.ViewState(
+        latitude=-14.2350,
+        longitude=-51.9253,
+        zoom=3.5,
+        pitch=40,
+        bearing=0
+    )
+    
+    # ============================================
+    # TOOLTIP - Hanya untuk Route Layer
+    # ============================================
+    tooltip = {
+        "html": "{tooltip_html}",
+        "style": {"backgroundColor": "transparent"}
+    }
+    
+    # Map style (free CartoDB style)
+    map_style = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
+    
+    # Create deck
+    deck = pdk.Deck(
+        map_style=map_style,
+        initial_view_state=view_state,
+        layers=layers,
+        tooltip=tooltip
+    )
+    
+    st.pydeck_chart(deck, use_container_width=True)
+    
+    # Route statistics
+    with st.expander("Route Statistics"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Routes in Map", f"{len(map_data):,}")
+        with col2:
+            total_orders_val = map_data['order_count'].sum() if 'order_count' in map_data.columns else 0
+            st.metric("Total Orders", f"{total_orders_val:,}")
+        with col3:
+            avg_delivery_val = map_data['avg_delivery_days'].mean() if 'avg_delivery_days' in map_data.columns else 0
+            st.metric("Avg Delivery", f"{avg_delivery_val:.1f} days")
+
+# ============================================
 # PAGE: MAP VIEW
 # ============================================
 if page == "Map View":
@@ -562,9 +564,7 @@ elif page == "Route Analytics":
         if 'order_count' in df_network.columns and not df_network.empty:
             top_routes = df_network.nlargest(15, 'order_count')
             
-            # Build display dataframe safely
             display_data = {}
-            
             if 'seller_state' in top_routes.columns:
                 display_data['Origin'] = top_routes['seller_state']
             if 'customer_state' in top_routes.columns:
@@ -578,12 +578,10 @@ elif page == "Route Analytics":
             
             if display_data:
                 top_routes_display = pd.DataFrame(display_data)
-                
                 if 'Performance' in top_routes_display.columns:
                     def color_performance(val):
                         colors = {'Fast': '#2ecc71', 'Normal': '#3498db', 'Slow': '#f39c12', 'Critical': '#e74c3c'}
                         return f'background-color: {colors.get(val, "white")}; color: white'
-                    
                     st.dataframe(top_routes_display.style.applymap(color_performance, subset=['Performance']), use_container_width=True)
                 else:
                     st.dataframe(top_routes_display, use_container_width=True)
@@ -660,10 +658,8 @@ elif page == "Warehouse Optimization":
     # Warehouse Candidate Locations
     if warehouses is not None and len(warehouses) > 0:
         st.markdown("### Recommended Warehouse Locations")
-        
         st.dataframe(warehouses, use_container_width=True)
         
-        # Show coordinate info
         lat_col = None
         lng_col = None
         for col in warehouses.columns:

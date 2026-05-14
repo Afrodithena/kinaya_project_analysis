@@ -582,7 +582,7 @@ elif page == "Route Analytics":
                     def color_performance(val):
                         colors = {'Fast': '#2ecc71', 'Normal': '#3498db', 'Slow': '#f39c12', 'Critical': '#e74c3c'}
                         return f'background-color: {colors.get(val, "white")}; color: white'
-                    st.dataframe(top_routes_display.style.applymap(color_performance, subset=['Performance']), use_container_width=True)
+                    st.dataframe(top_routes_display.style.map(color_performance, subset=['Performance']), use_container_width=True)
                 else:
                     st.dataframe(top_routes_display, use_container_width=True)
             else:

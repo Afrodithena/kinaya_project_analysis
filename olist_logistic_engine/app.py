@@ -217,7 +217,7 @@ with st.sidebar:
     st.caption("Powered by Olist")
 
 # ============================================
-# PAGE: MAP VIEW (MENGGUNAKAN FUNGSI DARI PAGES/MAP_VIEW.PY)
+# PAGE: MAP VIEW
 # ============================================
 if page == "Map View":
     from pages.map_view import render_map_view
@@ -278,18 +278,50 @@ elif page == "Route Analytics":
         st.markdown(f"**{problematic} routes** require intervention")
         st.markdown(f"Affecting approximately **{(problematic / total_routes * 100):.1f}%** of network")
     
-    # Top Routes Table
+    # Highest Volume Routes - FIXED VERSION
     st.markdown("### Highest Volume Routes")
     
-    if 'order_count' in df_network.columns:
-        top_routes = df_network.nlargest(15, 'order_count')[['seller_state', 'customer_state', 'order_count', 'avg_delivery_days', 'performance']].copy()
-        top_routes.columns = ['Origin', 'Destination', 'Order Count', 'Avg Delivery (Days)', 'Performance']
-        
-        def color_performance(val):
-            colors = {'Fast': '#2ecc71', 'Normal': '#3498db', 'Slow': '#f39c12', 'Critical': '#e74c3c'}
-            return f'background-color: {colors.get(val, "white")}; color: white'
-        
-        st.dataframe(top_routes.style.applymap(color_performance, subset=['Performance']), use_container_width=True)
+    try:
+        if 'order_count' in df_network.columns and not df_network.empty:
+            top_routes = df_network.nlargest(15, 'order_count')
+            
+            # Build display dataframe safely
+            display_data = {}
+            
+            if 'seller_state' in top_routes.columns:
+                display_data['Origin'] = top_routes['seller_state']
+            if 'customer_state' in top_routes.columns:
+                display_data['Destination'] = top_routes['customer_state']
+            if 'order_count' in top_routes.columns:
+                display_data['Order Count'] = top_routes['order_count']
+            if 'avg_delivery_days' in top_routes.columns:
+                display_data['Avg Delivery (Days)'] = top_routes['avg_delivery_days'].round(1)
+            if 'performance' in top_routes.columns:
+                display_data['Performance'] = top_routes['performance']
+            
+            if display_data:
+                top_routes_display = pd.DataFrame(display_data)
+                
+                # Apply color styling only if Performance column exists
+                if 'Performance' in top_routes_display.columns:
+                    def color_performance(val):
+                        colors = {'Fast': '#2ecc71', 'Normal': '#3498db', 'Slow': '#f39c12', 'Critical': '#e74c3c'}
+                        return f'background-color: {colors.get(val, "white")}; color: white'
+                    
+                    st.dataframe(top_routes_display.style.applymap(color_performance, subset=['Performance']), use_container_width=True)
+                else:
+                    st.dataframe(top_routes_display, use_container_width=True)
+            else:
+                st.info("Route data available but missing required columns.")
+        else:
+            st.info("Order count data not available to display top routes.")
+    except Exception as e:
+        st.warning(f"Could not display top routes: {e}")
+        # Fallback: display simple table without styling
+        if 'order_count' in df_network.columns:
+            simple_top = df_network.nlargest(10, 'order_count')[['seller_state', 'customer_state', 'order_count']].copy()
+            simple_top.columns = ['Origin', 'Destination', 'Order Count']
+            st.dataframe(simple_top, use_container_width=True)
     
     # Delivery by State
     st.markdown("### Delivery Performance by Origin State")

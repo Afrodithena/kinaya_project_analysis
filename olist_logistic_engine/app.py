@@ -276,6 +276,24 @@ def render_map_view():
         map_data = map_data.nlargest(500, 'order_count')
         st.caption(f"Showing top 500 routes by order volume (total {len(df_network)} routes available)")
     
+    # ============================================
+    # PREPARE TOOLTIP HTML (Pre-formatted)
+    # ============================================
+    # Buat kolom baru untuk tooltip yang sudah diformat
+    map_data['tooltip_html'] = map_data.apply(
+        lambda row: f"""
+        <div style="background: #1e293b; padding: 10px 14px; border-radius: 8px; 
+                    border-left: 3px solid #f97316; font-family: monospace;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+            <b style="color: #f97316; font-size: 14px;">{row.get('seller_state', '?')} → {row.get('customer_state', '?')}</b><br>
+            <span style="color: #94a3b8;">Orders:</span> <b style="color: white;">{row.get('order_count', 0):,}</b><br>
+            <span style="color: #94a3b8;">Delivery:</span> <b style="color: white;">{row.get('avg_delivery_days', 0):.1f} days</b><br>
+            <span style="color: #94a3b8;">Performance:</span> <b style="color: #f97316;">{row.get('performance', 'Unknown')}</b>
+        </div>
+        """,
+        axis=1
+    )
+    
     # Color mapping for performance
     color_map = {
         'Fast': [16, 185, 129, 200],
@@ -284,7 +302,6 @@ def render_map_view():
         'Critical': [239, 68, 68, 230]
     }
     
-    # Pastikan kolom performance ada
     if 'performance' in map_data.columns:
         map_data['color'] = map_data['performance'].map(lambda x: color_map.get(x, [100, 116, 139, 180]))
     else:
@@ -358,10 +375,12 @@ def render_map_view():
         bearing=0
     )
     
-    # SIMPLE TOOLTIP - tanpa formatting yang rumit
+    # ============================================
+    # TOOLTIP - Menggunakan kolom yang sudah diformat
+    # ============================================
     tooltip = {
-        "html": "<b>Route Details</b>",
-        "style": {"backgroundColor": "black", "color": "white"}
+        "html": "{tooltip_html}",
+        "style": {"backgroundColor": "transparent"}
     }
     
     # Map style (free CartoDB style)
@@ -388,10 +407,7 @@ def render_map_view():
         with col3:
             avg_delivery_val = map_data['avg_delivery_days'].mean() if 'avg_delivery_days' in map_data.columns else 0
             st.metric("Avg Delivery", f"{avg_delivery_val:.1f} days")
-    
-    # Show sample data for debugging (optional, hapus setelah yakin berfungsi)
-    with st.expander("Data Preview (Debug)"):
-        st.dataframe(map_data[['seller_state', 'customer_state', 'order_count', 'avg_delivery_days', 'performance']].head(10))
+            
 # ============================================
 # SIDEBAR NAVIGATION WITH METRICS BOXES
 # ============================================

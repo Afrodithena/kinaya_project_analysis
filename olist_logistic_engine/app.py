@@ -283,11 +283,19 @@ def render_map_view():
         'Slow': [249, 115, 22, 220],
         'Critical': [239, 68, 68, 230]
     }
-    map_data['color'] = map_data['performance'].map(lambda x: color_map.get(x, [100, 116, 139, 180]))
+    
+    # Pastikan kolom performance ada
+    if 'performance' in map_data.columns:
+        map_data['color'] = map_data['performance'].map(lambda x: color_map.get(x, [100, 116, 139, 180]))
+    else:
+        map_data['color'] = [100, 116, 139, 180]
     
     # Calculate line width based on order volume
-    max_orders = map_data['order_count'].max()
-    map_data['line_width'] = (map_data['order_count'] / max_orders * 8).clip(2, 8)
+    if 'order_count' in map_data.columns and map_data['order_count'].max() > 0:
+        max_orders = map_data['order_count'].max()
+        map_data['line_width'] = (map_data['order_count'] / max_orders * 8).clip(2, 8)
+    else:
+        map_data['line_width'] = 3
     
     # Create Arc Layer
     arc_layer = pdk.Layer(
@@ -299,8 +307,7 @@ def render_map_view():
         get_target_color='color',
         get_width='line_width',
         pickable=True,
-        auto_highlight=True,
-        highlight_color=[255, 255, 255, 100]
+        auto_highlight=True
     )
     
     # Add state centroid layer if available
@@ -351,18 +358,10 @@ def render_map_view():
         bearing=0
     )
     
-    # Tooltip
+    # SIMPLE TOOLTIP - tanpa formatting yang rumit
     tooltip = {
-        "html": """
-        <div style="background: #1e293b; padding: 8px 12px; border-radius: 8px; 
-                    border-left: 3px solid #f97316;">
-            <b>{seller_state} → {customer_state}</b><br>
-            Orders: {order_count}<br>
-            Delivery: {avg_delivery_days:.1f} days<br>
-            Performance: {performance}
-        </div>
-        """,
-        "style": {"backgroundColor": "transparent"}
+        "html": "<b>Route Details</b>",
+        "style": {"backgroundColor": "black", "color": "white"}
     }
     
     # Map style (free CartoDB style)
@@ -384,10 +383,15 @@ def render_map_view():
         with col1:
             st.metric("Total Routes in Map", f"{len(map_data):,}")
         with col2:
-            st.metric("Total Orders", f"{map_data['order_count'].sum():,}")
+            total_orders_val = map_data['order_count'].sum() if 'order_count' in map_data.columns else 0
+            st.metric("Total Orders", f"{total_orders_val:,}")
         with col3:
-            st.metric("Avg Delivery", f"{map_data['avg_delivery_days'].mean():.1f} days")
-
+            avg_delivery_val = map_data['avg_delivery_days'].mean() if 'avg_delivery_days' in map_data.columns else 0
+            st.metric("Avg Delivery", f"{avg_delivery_val:.1f} days")
+    
+    # Show sample data for debugging (optional, hapus setelah yakin berfungsi)
+    with st.expander("Data Preview (Debug)"):
+        st.dataframe(map_data[['seller_state', 'customer_state', 'order_count', 'avg_delivery_days', 'performance']].head(10))
 # ============================================
 # SIDEBAR NAVIGATION WITH METRICS BOXES
 # ============================================

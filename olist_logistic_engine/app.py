@@ -21,7 +21,7 @@ st.set_page_config(
 )
 
 # ============================================
-# CUSTOM CSS
+# CUSTOM CSS (Dengan Box Styles)
 # ============================================
 st.markdown("""
 <style>
@@ -53,6 +53,55 @@ st.markdown("""
     }
     .stButton button:hover {
         background-color: #5a67d8;
+    }
+    
+    /* Performance Metrics Boxes */
+    .metric-box {
+        background-color: #1e293b;
+        border-radius: 12px;
+        padding: 12px 16px;
+        margin-bottom: 12px;
+        text-align: center;
+        border: 1px solid #334155;
+    }
+    .metric-box-green {
+        border-left: 4px solid #10b981;
+    }
+    .metric-box-red {
+        border-left: 4px solid #ef4444;
+    }
+    .metric-box-orange {
+        border-left: 4px solid #f97316;
+    }
+    .metric-value {
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: white;
+    }
+    .metric-label {
+        font-size: 0.7rem;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    /* Quick Insight Boxes */
+    .insight-box {
+        background-color: #0f172a;
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 10px;
+        text-align: center;
+        border: 1px solid #334155;
+    }
+    .insight-value {
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: #f97316;
+    }
+    .insight-label {
+        font-size: 0.65rem;
+        color: #64748b;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -183,8 +232,19 @@ warehouses = data['warehouse_candidates']
 state_centroids = data['state_centroids']
 cost_benefit = data['cost_benefit']
 
+# Calculate metrics for sidebar
+total_routes = len(df_network)
+total_orders = df_network['order_count'].sum() if 'order_count' in df_network.columns else 0
+avg_delivery = df_network['avg_delivery_days'].mean() if 'avg_delivery_days' in df_network.columns else 0
+critical_count = len(df_network[df_network['performance'] == 'Critical']) if 'performance' in df_network.columns else 0
+fast_count = len(df_network[df_network['performance'] == 'Fast']) if 'performance' in df_network.columns else 0
+unique_sellers = df_network['seller_state'].nunique() if 'seller_state' in df_network.columns else 0
+unique_buyers = df_network['customer_state'].nunique() if 'customer_state' in df_network.columns else 0
+on_time = len(df_network[df_network['avg_delivery_days'] <= 15]) if 'avg_delivery_days' in df_network.columns else 0
+on_time_pct = (on_time / total_routes * 100) if total_routes > 0 else 0
+
 # ============================================
-# SIDEBAR NAVIGATION
+# SIDEBAR NAVIGATION WITH METRICS BOXES
 # ============================================
 with st.sidebar:
     st.markdown("## Navigation")
@@ -196,21 +256,74 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    st.markdown("## Network Statistics")
+    st.markdown("## Performance Metrics")
     
-    total_routes = len(df_network)
-    total_orders = df_network['order_count'].sum() if 'order_count' in df_network.columns else 0
-    avg_delivery = df_network['avg_delivery_days'].mean() if 'avg_delivery_days' in df_network.columns else 0
+    # Active Routes
+    st.markdown(f"""
+    <div class="metric-box">
+        <div class="metric-value">{total_routes:,}</div>
+        <div class="metric-label">Active Routes</div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Total Routes", f"{total_routes:,}")
-        fast_count = len(df_network[df_network['performance'] == 'Fast']) if 'performance' in df_network.columns else 0
-        st.metric("Fast Routes", f"{fast_count}")
-    with col2:
-        st.metric("Total Orders", f"{total_orders:,}")
-        critical_count = len(df_network[df_network['performance'] == 'Critical']) if 'performance' in df_network.columns else 0
-        st.metric("Critical Routes", f"{critical_count}")
+    # Total Orders
+    st.markdown(f"""
+    <div class="metric-box">
+        <div class="metric-value">{total_orders:,}</div>
+        <div class="metric-label">Total Orders</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Average Delivery
+    st.markdown(f"""
+    <div class="metric-box">
+        <div class="metric-value">{avg_delivery:.1f} days</div>
+        <div class="metric-label">Avg Delivery</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Critical Routes (Red border)
+    st.markdown(f"""
+    <div class="metric-box metric-box-red">
+        <div class="metric-value">{critical_count}</div>
+        <div class="metric-label">Critical Routes</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Fast Routes (Green border)
+    st.markdown(f"""
+    <div class="metric-box metric-box-green">
+        <div class="metric-value">{fast_count}</div>
+        <div class="metric-label">Fast Routes</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    st.markdown("## Quick Insights")
+    
+    # Active Seller States
+    st.markdown(f"""
+    <div class="insight-box">
+        <div class="insight-value">{unique_sellers}</div>
+        <div class="insight-label">Active Seller States</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Active Buyer States
+    st.markdown(f"""
+    <div class="insight-box">
+        <div class="insight-value">{unique_buyers}</div>
+        <div class="insight-label">Active Buyer States</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # On-Time Delivery Rate
+    st.markdown(f"""
+    <div class="insight-box">
+        <div class="insight-value">{on_time_pct:.0f}%</div>
+        <div class="insight-label">On-Time Delivery Rate</div>
+    </div>
+    """, unsafe_allow_html=True)
     
     st.markdown("---")
     st.caption("Data period: 2016-2018")

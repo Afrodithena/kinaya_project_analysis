@@ -450,7 +450,7 @@ def render_map_view():
                 get_radius=15000,
                 get_fill_color=[249, 115, 22, 200],
                 get_line_color=[234, 88, 12, 255],
-                pickable=False  # Tidak bisa di-hover, jadi tidak error tooltip
+                pickable=False
             )
             layers.append(warehouse_layer)
     
@@ -557,6 +557,23 @@ elif page == "Route Analytics":
         st.markdown(f"**{problematic} routes** require intervention")
         st.markdown(f"Affecting approximately **{(problematic / total_routes * 100):.1f}%** of network")
     
+    # Donut Chart Performance Distribution (Added)
+    st.markdown("### Performance Distribution Overview")
+    
+    if 'performance' in df_network.columns:
+        perf_counts = df_network['performance'].value_counts().reset_index()
+        perf_counts.columns = ['Performance', 'Count']
+        
+        fig = px.pie(perf_counts, values='Count', names='Performance',
+                     title='Route Performance Distribution',
+                     hole=0.4,
+                     color='Performance',
+                     color_discrete_map={'Fast': '#2ecc71', 'Normal': '#3498db', 
+                                         'Slow': '#f39c12', 'Critical': '#e74c3c'})
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        fig.update_layout(height=450)
+        st.plotly_chart(fig, use_container_width=True)
+    
     # Highest Volume Routes
     st.markdown("### Highest Volume Routes")
     
@@ -596,6 +613,23 @@ elif page == "Route Analytics":
             simple_top.columns = ['Origin', 'Destination', 'Order Count']
             st.dataframe(simple_top, use_container_width=True)
     
+    # Top 10 Slowest Routes (Added)
+    st.markdown("### Top 10 Slowest Routes")
+    
+    if 'avg_delivery_days' in df_network.columns and 'seller_state' in df_network.columns:
+        slowest_routes = df_network.nlargest(10, 'avg_delivery_days')
+        slowest_routes['route'] = slowest_routes['seller_state'] + ' → ' + slowest_routes['customer_state']
+        
+        fig = px.bar(slowest_routes, x='route', y='avg_delivery_days',
+                     title='Routes with Longest Delivery Times',
+                     color='avg_delivery_days',
+                     color_continuous_scale='Reds',
+                     text='avg_delivery_days',
+                     labels={'route': 'Route', 'avg_delivery_days': 'Delivery Time (days)'})
+        fig.update_traces(textposition='outside', texttemplate='%{text:.1f}d')
+        fig.update_layout(xaxis_tickangle=-45, height=500)
+        st.plotly_chart(fig, use_container_width=True)
+    
     # Delivery by State
     st.markdown("### Delivery Performance by Origin State")
     
@@ -621,14 +655,43 @@ elif page == "Route Analytics":
             fig.update_traces(textposition='outside')
             st.plotly_chart(fig, use_container_width=True)
     
-    # Distance vs Delivery Time
+    # Box Plot Delivery Time by Performance (Added)
+    st.markdown("### Delivery Time Distribution by Performance Tier")
+    
+    if 'performance' in df_network.columns and 'avg_delivery_days' in df_network.columns:
+        fig = px.box(df_network, x='performance', y='avg_delivery_days',
+                     title='Delivery Time Distribution by Performance Tier',
+                     color='performance',
+                     color_discrete_map={'Fast': '#2ecc71', 'Normal': '#3498db', 
+                                         'Slow': '#f39c12', 'Critical': '#e74c3c'},
+                     labels={'performance': 'Performance Tier', 'avg_delivery_days': 'Delivery Time (days)'})
+        fig.update_layout(height=450)
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Treemap Order Volume by State (Added)
+    st.markdown("### Order Volume Distribution by State")
+    
+    if 'seller_state' in df_network.columns and 'order_count' in df_network.columns:
+        state_volume = df_network.groupby('seller_state')['order_count'].sum().reset_index()
+        state_volume = state_volume.sort_values('order_count', ascending=False)
+        
+        fig = px.treemap(state_volume, path=['seller_state'], values='order_count',
+                         title='Order Volume Distribution by Seller State',
+                         color='order_count',
+                         color_continuous_scale='Oranges',
+                         labels={'seller_state': 'State', 'order_count': 'Total Orders'})
+        fig.update_layout(height=500)
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Distance vs Delivery Time (with Trendline)
     st.markdown("### Distance vs Delivery Time Analysis")
     
     if 'distance_km' in df_network.columns and 'avg_delivery_days' in df_network.columns:
         fig = px.scatter(df_network, x='distance_km', y='avg_delivery_days', color='performance' if 'performance' in df_network.columns else None,
                          color_discrete_map={'Fast': '#2ecc71', 'Normal': '#3498db', 'Slow': '#f39c12', 'Critical': '#e74c3c'},
-                         size='order_count', size_max=15, hover_data=['seller_state', 'customer_state'],
-                         title='Relationship Between Distance and Delivery Time',
+                         size='order_count', size_max=15, trendline='ols',
+                         hover_data=['seller_state', 'customer_state'],
+                         title='Relationship Between Distance and Delivery Time (with Regression Line)',
                          labels={'distance_km': 'Distance (km)', 'avg_delivery_days': 'Average Delivery Time (days)'})
         fig.update_layout(height=500)
         st.plotly_chart(fig, use_container_width=True)

@@ -8,7 +8,7 @@ import pickle
 from pathlib import Path
 from typing import Tuple, Dict, List, Optional
 
-from src.config import TICKERS, DATA_DIR
+from src.config import TICKERS
 
 
 def load_stock_data(file_path: str) -> pd.DataFrame:
@@ -34,22 +34,72 @@ def load_all_stocks(data_path: Optional[str] = None) -> Tuple[List[str], Dict[st
     Returns:
         Tuple of (list of tickers, dictionary of stock dataframes)
     """
-    if data_path is None:
-        data_path = str(DATA_DIR / "raw")
     
-    pickle_path = DATA_DIR / "all_stocks_data.pkl"
+    # ============================================
+    # CARI PICKLE FILE DI MULTIPLE LOCATIONS
+    # ============================================
+    possible_pickle_paths = [
+        Path(__file__).parent.parent / "data" / "all_stocks_data.pkl",  # financial_planner/data/
+        Path.cwd() / "data" / "all_stocks_data.pkl",                    # current working directory/data
+        Path.cwd() / "financial_planner/data/all_stocks_data.pkl",       # explicit path
+        Path("/mount/src/kinaya_project_analysis/financial_planner/data/all_stocks_data.pkl"), # Streamlit Cloud
+    ]
+    
+    pickle_path = None
+    for path in possible_pickle_paths:
+        if path.exists():
+            pickle_path = path
+            print(f"✅ Found pickle at: {pickle_path}")
+            break
     
     # Use pickle cache if available
-    if pickle_path.exists():
-        with open(pickle_path, "rb") as f:
-            all_stocks_data = pickle.load(f)
-        
-        # Extract stock tickers (exclude metadata keys that start with '_')
-        stock_tickers = [k for k in all_stocks_data.keys() if not k.startswith('_')]
-        
-        return stock_tickers, all_stocks_data
+    if pickle_path is not None and pickle_path.exists():
+        try:
+            with open(pickle_path, "rb") as f:
+                all_stocks_data = pickle.load(f)
+            
+            # Handle different pickle formats
+            if isinstance(all_stocks_data, dict):
+                # Direct dictionary format
+                stock_tickers = [k for k in all_stocks_data.keys() if not k.startswith('_')]
+                print(f"✅ Loaded {len(stock_tickers)} stocks from pickle (dict format)")
+                return stock_tickers, all_stocks_data
+            
+            elif isinstance(all_stocks_data, tuple) and len(all_stocks_data) == 2:
+                # Tuple format (tickers, data_dict)
+                tickers, data_dict = all_stocks_data
+                if isinstance(tickers, list) and isinstance(data_dict, dict):
+                    print(f"✅ Loaded {len(tickers)} stocks from pickle (tuple format)")
+                    return tickers, data_dict
+            
+            else:
+                print(f"⚠️ Unknown pickle format: {type(all_stocks_data)}")
+                
+        except Exception as e:
+            print(f"⚠️ Error loading pickle: {e}")
     
-    # Fallback: load from individual CSV files
+    # ============================================
+    # FALLBACK: LOAD FROM CSV
+    # ============================================
+    print("⚠️ Pickle not found or failed. Falling back to CSV loading...")
+    
+    # Tentukan folder data CSV
+    if data_path is None:
+        possible_csv_paths = [
+            Path(__file__).parent.parent / "data" / "raw",
+            Path.cwd() / "data" / "raw",
+            Path.cwd() / "financial_planner/data/raw",
+        ]
+        
+        for csv_path in possible_csv_paths:
+            if csv_path.exists():
+                data_path = str(csv_path)
+                print(f"✅ Found CSV data at: {data_path}")
+                break
+        else:
+            print("❌ CSV data directory not found!")
+            return [], {}
+    
     all_stocks_data = {}
     
     for ticker in TICKERS:
@@ -63,6 +113,7 @@ def load_all_stocks(data_path: Optional[str] = None) -> Tuple[List[str], Dict[st
         except Exception as e:
             print(f"Error loading {ticker}: {e}")
     
+    print(f"✅ Loaded {len(all_stocks_data)} stocks from CSV")
     return list(all_stocks_data.keys()), all_stocks_data
 
 

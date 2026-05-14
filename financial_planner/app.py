@@ -170,9 +170,9 @@ elif st.session_state.step == 2:
                         st.session_state.selected_stocks.remove(stock)
 
                         if stock in st.session_state.stock_lots:
-                            del st.session_state.stock_lots[stocks]
+                            del st.session_state.stock_lots[stock]
                         if stock in st.session_state.stock_purchase_dates:
-                            del st.session_state.stock_purchase_dates[stocks]
+                            del st.session_state.stock_purchase_dates[stock]
     
     if len(st.session_state.selected_stocks) > 0:
         st.markdown("---")

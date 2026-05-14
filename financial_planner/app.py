@@ -806,89 +806,78 @@ elif st.session_state.step == 5:
                 st.rerun()
 
 # ============================================
-# DARK THEME CSS - PROFESSIONAL ENTERPRISE GRADE
+# PROFESSIONAL DARK THEME CSS - ENTERPRISE GRADE
 # ============================================
 st.markdown("""
 <style>
     /* ============================================
-       BASE THEME - Professional Dark Enterprise
+       BASE THEME - Deep Dark Enterprise
        ============================================ */
     
-    /* Main Background - Subtle gradient instead of flat */
     .stApp {
-        background: linear-gradient(135deg, #0a0f1a 0%, #0f1420 50%, #0a0f1a 100%);
+        background: radial-gradient(ellipse at top, #0f172a, #0a0f1a);
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
     
-    /* Main container padding */
     .main .block-container {
         padding-top: 2rem;
         padding-bottom: 2rem;
-        max-width: 1400px;
     }
     
     /* ============================================
-       TYPOGRAPHY - Clean and Professional
+       TYPOGRAPHY - Crystal Clear
        ============================================ */
     
-    /* Headers with subtle gradient */
     h1 {
-        font-size: 2.2rem;
+        font-size: 2rem;
         font-weight: 700;
         background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 100%);
         -webkit-background-clip: text;
         background-clip: text;
         color: transparent;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.02em;
         margin-bottom: 0.5rem;
     }
     
     h2 {
-        font-size: 1.5rem;
+        font-size: 1.4rem;
         font-weight: 600;
         color: #f1f5f9;
-        margin-top: 1.5rem;
-        margin-bottom: 1rem;
+        margin-top: 1.25rem;
+        margin-bottom: 0.75rem;
         padding-bottom: 0.5rem;
-        border-bottom: 2px solid #334155;
+        border-bottom: 2px solid rgba(230, 126, 34, 0.3);
     }
     
     h3 {
-        font-size: 1.2rem;
+        font-size: 1.1rem;
         font-weight: 600;
         color: #e2e8f0;
-        margin-top: 1rem;
-        margin-bottom: 0.75rem;
+        margin-top: 0.75rem;
+        margin-bottom: 0.5rem;
     }
     
-    /* Regular text - improved readability */
     p, li, .stMarkdown {
         color: #cbd5e1;
-        line-height: 1.5;
-    }
-    
-    /* Subtle text */
-    .stCaption, caption {
-        color: #64748b;
-        font-size: 0.75rem;
+        line-height: 1.6;
     }
     
     /* ============================================
-       METRIC CARDS - Professional Glass Morphism
+       METRIC CARDS - Glass Premium
        ============================================ */
     
     .metric-card {
-        background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.9) 100%);
+        background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9));
         backdrop-filter: blur(10px);
         border-radius: 16px;
         padding: 1.2rem;
         border: 1px solid rgba(51, 65, 85, 0.5);
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
     
     .metric-card:hover {
-        border-color: rgba(230, 126, 34, 0.3);
+        border-color: rgba(230, 126, 34, 0.4);
         transform: translateY(-2px);
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
     }
@@ -896,7 +885,7 @@ st.markdown("""
     .metric-value {
         font-size: 2rem;
         font-weight: 700;
-        background: linear-gradient(135deg, #f97316 0%, #e67e22 100%);
+        background: linear-gradient(135deg, #f97316, #e67e22);
         -webkit-background-clip: text;
         background-clip: text;
         color: transparent;
@@ -904,7 +893,7 @@ st.markdown("""
     }
     
     .metric-label {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         color: #94a3b8;
         text-transform: uppercase;
         letter-spacing: 0.05em;
@@ -912,17 +901,17 @@ st.markdown("""
     }
     
     /* ============================================
-       BUTTONS - Sleek and Responsive
+       BUTTONS - Sleek & Responsive
        ============================================ */
     
     .stButton button {
-        background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+        background: linear-gradient(135deg, #e67e22, #d35400);
         color: white;
         font-weight: 600;
         border: none;
         padding: 0.6rem 1.5rem;
         border-radius: 12px;
-        transition: all 0.3s ease;
+        transition: all 0.2s ease;
         cursor: pointer;
         font-size: 0.875rem;
         letter-spacing: 0.02em;
@@ -930,34 +919,19 @@ st.markdown("""
     }
     
     .stButton button:hover {
-        background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+        background: linear-gradient(135deg, #f39c12, #e67e22);
         transform: translateY(-1px);
-        box-shadow: 0 4px 8px rgba(230, 126, 34, 0.3);
+        box-shadow: 0 4px 12px rgba(230, 126, 34, 0.3);
     }
     
     .stButton button:active {
         transform: translateY(0px);
     }
     
-    /* Secondary button style */
-    .stButton button[data-testid="baseButton-secondary"] {
-        background: transparent;
-        border: 1px solid #475569;
-        color: #cbd5e1;
-        box-shadow: none;
-    }
-    
-    .stButton button[data-testid="baseButton-secondary"]:hover {
-        background: rgba(71, 85, 105, 0.3);
-        border-color: #e67e22;
-        color: #f1f5f9;
-    }
-    
     /* ============================================
-       INPUT FIELDS - Clean and Modern
+       INPUT FIELDS - Clean Modern
        ============================================ */
     
-    /* Text inputs and number inputs */
     div[data-testid="stTextInput"] input,
     div[data-testid="stNumberInput"] input,
     div[data-testid="stDateInput"] input {
@@ -978,21 +952,20 @@ st.markdown("""
         outline: none;
     }
     
-    /* Labels for inputs */
     div[data-testid="stTextInput"] label,
     div[data-testid="stNumberInput"] label,
     div[data-testid="stDateInput"] label,
     div[data-testid="stSelectbox"] label {
         color: #94a3b8 !important;
         font-weight: 500 !important;
-        font-size: 0.75rem !important;
+        font-size: 0.7rem !important;
         text-transform: uppercase;
         letter-spacing: 0.03em;
         margin-bottom: 0.25rem !important;
     }
     
     /* ============================================
-       SELECT BOX - Custom Styled
+       SELECT BOX - Custom Premium
        ============================================ */
     
     div[data-baseweb="select"] > div {
@@ -1014,7 +987,6 @@ st.markdown("""
         background-color: #1e293b !important;
         border: 1px solid #334155 !important;
         border-radius: 10px !important;
-        backdrop-filter: blur(8px);
     }
     
     div[data-baseweb="popover"] li {
@@ -1029,50 +1001,36 @@ st.markdown("""
     }
     
     /* ============================================
-       CHECKBOX and RADIO
+       CHECKBOX & RADIO
        ============================================ */
     
-    div[data-testid="stCheckbox"] label {
-        color: #cbd5e1 !important;
-    }
-    
-    div[data-testid="stCheckbox"] label span {
-        color: #cbd5e1 !important;
-    }
-    
+    div[data-testid="stCheckbox"] label,
     div[data-testid="stRadio"] label {
         color: #cbd5e1 !important;
     }
     
-    /* Styled checkbox */
-    .stCheckbox {
-        margin: 0.5rem 0;
+    div[data-testid="stCheckbox"] label span,
+    div[data-testid="stRadio"] label span {
+        color: #cbd5e1 !important;
     }
     
     /* ============================================
-       SLIDER - Professional Styling
+       SLIDER - Professional
        ============================================ */
-    
-    div[data-testid="stSlider"] {
-        margin: 1rem 0;
-    }
     
     div[data-testid="stSlider"] label {
         color: #94a3b8 !important;
         font-weight: 500 !important;
     }
     
-    /* Track */
     div[data-testid="stSlider"] > div > div > div {
         background-color: #334155 !important;
     }
     
-    /* Filled track */
     div[data-testid="stSlider"] > div > div > div > div {
         background: linear-gradient(90deg, #e67e22, #f97316) !important;
     }
     
-    /* Thumb */
     div[data-testid="stSlider"] > div > div > div > div > div {
         background-color: #f97316 !important;
         border-color: #f97316 !important;
@@ -1101,12 +1059,8 @@ st.markdown("""
     .stExpander {
         border: 1px solid #334155 !important;
         border-radius: 12px !important;
-        background-color: rgba(30, 41, 59, 0.5) !important;
+        background: rgba(30, 41, 59, 0.5) !important;
         margin: 0.75rem 0;
-    }
-    
-    .stExpander details summary {
-        padding: 0.75rem 1rem;
     }
     
     .stExpander details summary p {
@@ -1115,7 +1069,7 @@ st.markdown("""
     }
     
     /* ============================================
-       ALERTS / MESSAGES
+       ALERTS
        ============================================ */
     
     .stAlert {
@@ -1127,36 +1081,37 @@ st.markdown("""
         color: #f1f5f9 !important;
     }
     
-    /* Success */
     .stAlert[data-testid="stAlertSuccess"] {
         background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.05)) !important;
         border-left-color: #22c55e !important;
     }
     
-    /* Error */
     .stAlert[data-testid="stAlertError"] {
         background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05)) !important;
         border-left-color: #ef4444 !important;
     }
     
-    /* Warning */
     .stAlert[data-testid="stAlertWarning"] {
         background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.05)) !important;
         border-left-color: #f59e0b !important;
     }
     
-    /* Info */
-    .stAlert[data-testid="stAlertInfo"] {
+    .stInfo {
         background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05)) !important;
-        border-left-color: #3b82f6 !important;
+        border: 1px solid rgba(59, 130, 246, 0.3) !important;
+        border-radius: 12px !important;
+    }
+    
+    .stInfo p {
+        color: #93c5fd !important;
     }
     
     /* ============================================
-       SIDEBAR - Professional Dark
+       SIDEBAR - Elegant Dark
        ============================================ */
     
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0a0f1a 0%, #0f1420 100%);
+        background: linear-gradient(180deg, #0a0f1a, #0f1420);
         border-right: 1px solid #1e293b;
     }
     
@@ -1166,7 +1121,6 @@ st.markdown("""
         color: #94a3b8 !important;
     }
     
-    /* Sidebar header */
     section[data-testid="stSidebar"] h1,
     section[data-testid="stSidebar"] h2,
     section[data-testid="stSidebar"] h3 {
@@ -1174,7 +1128,7 @@ st.markdown("""
     }
     
     /* ============================================
-       DATA FRAME / TABLES
+       DATA FRAME - Clean Tables
        ============================================ */
     
     .stDataFrame {
@@ -1201,7 +1155,7 @@ st.markdown("""
     }
     
     /* ============================================
-       TABS - Professional
+       TABS - Smooth Modern
        ============================================ */
     
     .stTabs [data-baseweb="tab-list"] {
@@ -1235,32 +1189,18 @@ st.markdown("""
     }
     
     /* ============================================
-       COLUMNS - Better spacing
+       COLUMNS - Subtle Spacing
        ============================================ */
     
     div[data-testid="column"] {
         background: rgba(15, 23, 42, 0.3);
         border-radius: 12px;
-        padding: 0.75rem;
+        padding: 0.5rem;
         margin: 0.25rem;
     }
     
     div[data-testid="column"] p {
         color: #cbd5e1 !important;
-    }
-    
-    /* ============================================
-       INFO BOXES
-       ============================================ */
-    
-    .stInfo {
-        background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05)) !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(59, 130, 246, 0.3) !important;
-    }
-    
-    .stInfo p {
-        color: #93c5fd !important;
     }
     
     /* ============================================
@@ -1273,39 +1213,16 @@ st.markdown("""
     }
     
     /* ============================================
-       BADGE / CAPTION for metrics
+       CAPTION - Subtle Info
        ============================================ */
     
-    .badge {
-        background: #1e293b;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
+    .stCaption, caption {
+        color: #64748b;
         font-size: 0.7rem;
-        color: #94a3b8;
-        display: inline-block;
-        margin-left: 0.5rem;
     }
     
     /* ============================================
-       CARD CONTAINER
-       ============================================ */
-    
-    .card-container {
-        background: #1e293b;
-        border-radius: 16px;
-        padding: 1.25rem;
-        margin: 1rem 0;
-        border: 1px solid #334155;
-        transition: all 0.3s ease;
-    }
-    
-    .card-container:hover {
-        border-color: #e67e22;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-    
-    /* ============================================
-       SCROLLBAR - Subtle
+       SCROLLBAR - Custom
        ============================================ */
     
     ::-webkit-scrollbar {

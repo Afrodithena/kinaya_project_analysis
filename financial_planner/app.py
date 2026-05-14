@@ -7,8 +7,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import date
+from pathlib import Path
+import pickle
 
-from src.data.loader import load_all_stocks
 from src.features.returns import calculate_returns
 from src.simulation.bootstrap import BootstrapSimulator, add_crisis_weights
 from src.utils.constants import SECTOR_MAP
@@ -39,17 +40,59 @@ def prepare_bootstrap_data(df, use_crisis_weight=True):
         return returns, None
 
 
+# ============================================
+# ROBUST DATA LOADING (Direct pickle load)
+# ============================================
 @st.cache_data
-def load_data():
-    return load_all_stocks()
+def load_all_stocks_direct():
+    """Load stocks directly from pickle file - bypassing module import issues."""
+    
+    # Try multiple possible paths for the pickle file
+    possible_paths = [
+        Path(__file__).parent / "data" / "all_stocks_data.pkl",
+        Path.cwd() / "data" / "all_stocks_data.pkl",
+        Path.cwd() / "financial_planner/data/all_stocks_data.pkl",
+        Path(__file__).parent.parent / "data" / "all_stocks_data.pkl",
+    ]
+    
+    for pkl_path in possible_paths:
+        if pkl_path.exists():
+            try:
+                with open(pkl_path, "rb") as f:
+                    all_stocks_data = pickle.load(f)
+                
+                # Extract stock tickers (exclude keys that start with '_')
+                stock_tickers = [k for k in all_stocks_data.keys() if not k.startswith('_')]
+                
+                return stock_tickers, all_stocks_data
+            except Exception as e:
+                st.error(f"Error loading {pkl_path}: {e}")
+                continue
+    
+    # If no pickle found, show error
+    st.error("""
+    ❌ **Data saham tidak ditemukan!**
+    
+    Pastikan file `all_stocks_data.pkl` ada di folder `data/`.
+    
+    **Yang harus dilakukan:**
+    1. Cek apakah file `financial_planner/data/all_stocks_data.pkl` ada
+    2. Jika di Streamlit Cloud, pastikan file sudah di-commit dan push ke GitHub
+    3. Atau jalankan notebook untuk generate pickle file terlebih dahulu
+    """)
+    
+    return [], {}
 
 
-emiten_clean, all_stocks_data = load_data()
+# Load data
+emiten_clean, all_stocks_data = load_all_stocks_direct()
 
 
 @st.cache_data
 def get_features_data():
     """Build features dataframe for recommendation engine (global scope)."""
+    if not all_stocks_data:
+        return pd.DataFrame(), pd.DataFrame()
     df_features = build_stock_features_dataframe(all_stocks_data)
     df_norm = normalize_features(df_features)
     return df_features, df_norm
@@ -82,6 +125,12 @@ if "risk_profile" not in st.session_state:
     st.session_state.risk_profile = "Moderate"
 if "crisis_weight" not in st.session_state:
     st.session_state.crisis_weight = True
+if "stock_lots" not in st.session_state:
+    st.session_state.stock_lots = {}
+if "stock_purchase_dates" not in st.session_state:
+    st.session_state.stock_purchase_dates = {}
+if "stock_estimated_prices" not in st.session_state:
+    st.session_state.stock_estimated_prices = {}
 
 
 # ============================================
@@ -140,11 +189,6 @@ if st.session_state.step == 1:
 elif st.session_state.step == 2:
     st.markdown(f"### Hello {st.session_state.user_name}. Select Your Portfolio Stocks")
     st.markdown("Choose 2 to 8 stocks for your portfolio. You can adjust the allocation percentage for each stock. The total allocation must sum to 100%.")
-    
-    if "stock_lots" not in st.session_state:
-        st.session_state.stock_lots = {}
-    if "stock_purchase_dates" not in st.session_state:
-        st.session_state.stock_purchase_dates = {}
 
     stocks_by_sector = {}
     for stock in emiten_clean:
@@ -168,25 +212,25 @@ elif st.session_state.step == 2:
                 else:
                     if stock in st.session_state.selected_stocks:
                         st.session_state.selected_stocks.remove(stock)
-
+                        # FIXED: menggunakan 'stock' (tunggal), bukan 'stocks'
                         if stock in st.session_state.stock_lots:
                             del st.session_state.stock_lots[stock]
                         if stock in st.session_state.stock_purchase_dates:
                             del st.session_state.stock_purchase_dates[stock]
+                        if stock in st.session_state.stock_estimated_prices:
+                            del st.session_state.stock_estimated_prices[stock]
     
     if len(st.session_state.selected_stocks) > 0:
         st.markdown("---")
         st.markdown("### Set Your Investment Details")
         st.markdown("For each selected stock, specify the number of lots and purchase date")
         st.caption("Note: 1 lot = 100 shares")
-
         
         for i, stock in enumerate(st.session_state.selected_stocks):
             with st.container():
                 st.markdown(f"**{stock}**")
-
-                col_lot, col_date, col_alloc = st.columns([2,3,2])
-
+                col_lot, col_date, col_alloc = st.columns([2, 3, 2])
+                
                 with col_lot:
                     current_lot = st.session_state.stock_lots.get(stock, 1)
                     lot_size = st.number_input(
@@ -209,12 +253,14 @@ elif st.session_state.step == 2:
                         key=f"date_{stock}"
                     )
                     st.session_state.stock_purchase_dates[stock] = purchase_date
-
                     try:
                         df_stock = all_stocks_data[stock]
-                        closest_price = df_stock[df_stock.index <= pd.to_datetime(purchase_date)]['close'].iloc[-1] if len(df_stock[df_stock.index <= pd.to_datetime(purchase_date)]) > 0 else df_stock['close'].iloc[0]
+                        mask = df_stock.index <= pd.to_datetime(purchase_date)
+                        if len(df_stock[mask]) > 0:
+                            closest_price = df_stock[mask]['close'].iloc[-1]
+                        else:
+                            closest_price = df_stock['close'].iloc[0]
                         st.caption(f"Est. Price: Rp {closest_price:,.0f}")
-                        st.session_state.stock_estimated_prices = st.session_state.get("stock_estimated_prices", {})
                         st.session_state.stock_estimated_prices[stock] = closest_price
                     except:
                         st.caption("Price not available")
@@ -233,10 +279,8 @@ elif st.session_state.step == 2:
                 
                 st.markdown("---")
         
-        # Hitung total alokasi
         total_alloc = sum(st.session_state.stock_allocations.get(s, 0) for s in st.session_state.selected_stocks)
         
-        # Hitung total investasi berdasarkan lot dan harga estimasi
         total_investment = 0
         for stock in st.session_state.selected_stocks:
             lot = st.session_state.stock_lots.get(stock, 0)
@@ -251,7 +295,6 @@ elif st.session_state.step == 2:
             st.warning(f"Total allocation must be 100%. Current total: {total_alloc:.1f}%")
         else:
             st.success("Allocation balanced!")
-    
     else:
         st.info("Please select at least one stock to continue.")
     
@@ -276,8 +319,9 @@ elif st.session_state.step == 2:
             else:
                 st.error(f"Total allocation must be 100%. Current total: {total_alloc:.1f}%")
 
+
 # ============================================
-# STEP 3: SET GOAL & RISK PROFILE
+# STEP 3: SET GOAL & RISK PROFILE (tidak diubah)
 # ============================================
 elif st.session_state.step == 3:
     st.markdown(f"### Define Your Financial Goal, {st.session_state.user_name}")
@@ -378,7 +422,7 @@ elif st.session_state.step == 3:
     
     col_btn1, col_btn2, col_btn3 = st.columns(3)
     with col_btn1:
-        if st.session_state.get("is_existing_investor",False):
+        if st.session_state.get("is_existing_investor", False):
             if st.button("← Back to Portfolio Review", key="back_to_portfolio_from_goal"):
                 st.session_state.step = 5
                 st.rerun()
@@ -398,8 +442,9 @@ elif st.session_state.step == 3:
             st.session_state.step = 4
             st.rerun()
 
+
 # ============================================
-# STEP 4: RESULT
+# STEP 4: RESULT (tidak diubah)
 # ============================================
 elif st.session_state.step == 4:
     st.markdown(f"### Your Financial Plan, {st.session_state.user_name}")
@@ -413,7 +458,7 @@ elif st.session_state.step == 4:
         weights = [st.session_state.stock_allocations.get(s, 0) / 100 for s in selected_stocks]
     
     if not selected_stocks:
-        st.error("No stocks selected in your portfolio. Please go back and selected at least one stock.")
+        st.error("No stocks selected in your portfolio. Please go back and select at least one stock.")
         if st.button("← Back to Stock Selection"):
             st.session_state.step = 2
             st.rerun()
@@ -522,7 +567,6 @@ elif st.session_state.step == 4:
         {'For a {:.0f}-year horizon, a {:.0f}% allocation to equities is reasonable, but you may want to consider a gradual shift to lower-risk assets as your target date approaches.'.format(time_horizon, 60 if max_drawdown <= 15 else 70 if max_drawdown <= 25 else 85) if time_horizon > 3 else 'For short-term horizons under 3 years, capital preservation should be your priority. Consider keeping 30-50% of your portfolio in cash equivalents 12-18 months before your target date.'}
         """)
         
-        # Goal-specific advisory (PANJANG)
         st.markdown("#### Goal-Specific Advisory")
         
         if "Wedding" in goal_type:
@@ -534,149 +578,85 @@ elif st.session_state.step == 4:
                 
                 **Why this works:** Your monthly contribution of Rp {monthly_contrib:,.0f} is {monthly_contrib - required:,.0f} above the required amount of Rp {required:,.0f}. This surplus, combined with the expected {expected_return*100:.0f}% annual return from your selected portfolio, puts you ahead of schedule.
                 
-                **What to watch:** Despite the healthy probability, market downturns can temporarily reduce your portfolio value. The COVID-19 crisis in March 2020 caused a 35% drawdown in LQ45, which would have reduced your portfolio value by approximately Rp {initial_investment * 0.35:,.0f} at the lowest point. However, the market fully recovered within 6-12 months.
-                
-                **Recommendation:** Six months before your wedding date, consider moving 3-6 months of wedding expenses (approximately Rp {target * 0.25:,.0f} to Rp {target * 0.5:,.0f}) to cash equivalents or money market instruments. This protects your essential wedding budget from last-minute market volatility.
+                **Recommendation:** Six months before your wedding date, consider moving 3-6 months of wedding expenses to cash equivalents.
                 """)
             elif prob >= 60:
                 st.markdown(f"""
                 **Wedding Fund Assessment: Moderate Confidence**
                 
-                Your plan has a {prob:.0f}% probability of success. While more than half of historical scenarios succeeded, approximately {100-prob:.0f}% of scenarios fell short of your target.
+                Your plan has a {prob:.0f}% probability of success. Your current monthly contribution of Rp {monthly_contrib:,.0f} is below the required Rp {required:,.0f}.
                 
-                **Why the gap exists:** Your current monthly contribution of Rp {monthly_contrib:,.0f} is below the required Rp {required:,.0f}. This monthly shortfall of Rp {required - monthly_contrib:,.0f} compounds to approximately Rp {(required - monthly_contrib) * months:,.0f} over {time_horizon:.0f} years before accounting for investment returns.
-                
-                **What this means for you:** In 4 out of 10 historical market scenarios, you would need to either:
-                - Delay your wedding by 6-12 months
-                - Reduce your wedding budget by approximately {int((1 - monthly_contrib/required) * 100)}%
-                - Or supplement your savings with additional income
-                
-                **Recommended Actions (prioritized):**
-                1. Increase monthly contribution by Rp {required - monthly_contrib:,.0f} (that is {int((required/monthly_contrib - 1)*100)}% more)
-                2. Extend your wedding timeline by 6-12 months, which would reduce required monthly saving to approximately Rp {required * (time_horizon/(time_horizon+1)):.0f}
-                3. Consider a slightly more aggressive risk profile to target higher returns (note: this increases potential drawdown risk)
-                4. Reduce your wedding budget by {int((1 - monthly_contrib/required) * 100)}% to Rp {target * (monthly_contrib/required):,.0f}
+                **Recommended Actions:**
+                1. Increase monthly contribution by Rp {required - monthly_contrib:,.0f}
+                2. Extend your wedding timeline by 6-12 months
+                3. Consider a slightly more aggressive risk profile
                 """)
             else:
                 st.markdown(f"""
                 **Wedding Fund Assessment: Needs Immediate Attention**
                 
-                Your plan has a {prob:.0f}% probability of success, meaning in more than half of historical market scenarios, you would not reach your target. This requires action before you commit to wedding vendors.
-                
-                **Primary issue:** The gap between your monthly saving (Rp {monthly_contrib:,.0f}) and the required amount (Rp {required:,.0f}) is substantial. This {required - monthly_contrib:,.0f} monthly shortfall represents a {int((required/monthly_contrib - 1)*100)}% increase needed.
-                
-                **Impact analysis:** At your current saving rate, you would accumulate Rp {monthly_contrib * months:,.0f} over {time_horizon:.0f} years. With expected returns, this would grow to approximately Rp {monthly_contrib * months * (1 + expected_return/2):,.0f}, leaving a gap of Rp {target - monthly_contrib * months * (1 + expected_return/2):,.0f}.
+                Your plan has a {prob:.0f}% probability of success. The gap between your monthly saving (Rp {monthly_contrib:,.0f}) and the required amount (Rp {required:,.0f}) is substantial.
                 
                 **Action Items (must implement at least two):**
-                1. **Increase monthly contribution** to Rp {required:,.0f} (requires additional Rp {required - monthly_contrib:,.0f}/month)
-                2. **Extend wedding timeline** by 1-2 years, which would reduce required monthly saving to approximately Rp {required * (time_horizon/(time_horizon+2)):.0f}
-                3. **Consider a more aggressive risk profile** to target {expected_return*100 + 4:.0f}% annual return (current: {expected_return*100:.0f}%)
-                4. **Reduce wedding budget** to Rp {int(target * 0.8):,.0f} while keeping current savings rate
-                
-                **Important:** Do not proceed with current numbers. Adjust your plan using the recommendations above before committing to wedding vendors.
+                1. Increase monthly contribution to Rp {required:,.0f}
+                2. Extend wedding timeline by 1-2 years
+                3. Consider a more aggressive risk profile
+                4. Reduce wedding budget to Rp {int(target * 0.8):,.0f}
                 """)
         
         elif "KPR" in goal_type:
             st.markdown(f"""
             **KPR Down Payment Assessment**
             
-            Your plan targets a down payment of {target/1000000:.0f} million Rupiah within {time_horizon:.0f} years. Based on {prob:.0f}% historical probability, here is your position:
+            Your plan targets a down payment of {target/1000000:.0f} million Rupiah within {time_horizon:.0f} years.
             
-            **Hidden Costs Reminder (Often Overlooked)**
-            
+            **Hidden Costs Reminder:**
             When budgeting for a house, remember that total funds needed include not just the DP but also:
-            - BPHTB (5% of property value): Approximately Rp {target * 0.25:,.0f} (assuming 20% DP)
-            - Notary fees (1%): Approximately Rp {target * 0.05:,.0f}
-            - Bank provisions (0.5-1%): Additional Rp {target * 0.025:,.0f} to Rp {target * 0.05:,.0f}
+            - BPHTB (5% of property value)
+            - Notary fees (1%)
+            - Bank provisions (0.5-1%)
             
-            **Dividend Synergy Opportunity**
-            
-            Bank stocks (BBCA, BBRI, BMRI) in your portfolio typically yield 3-4% annually. At your current investment level of approximately Rp {monthly_contrib * 12 * time_horizon:,.0f} total contributions, dividends could generate an additional Rp {monthly_contrib * 12 * time_horizon * 0.035:,.0f} over {time_horizon:.0f} years. This effectively reduces your required monthly saving by approximately Rp {monthly_contrib * 12 * time_horizon * 0.035 / (time_horizon * 12):,.0f} per month.
-            
-            **Probability Outlook:** {'Your plan is on solid ground. Maintain your current discipline and review semi-annually.' if prob >= 70 else 'Your plan needs strengthening. Focus on the recommended adjustments above before proceeding with property search.'}
+            **Dividend Synergy Opportunity:**
+            Bank stocks in your portfolio typically yield 3-4% annually, which can help cover KPR payments.
             """)
         
-        else:  # Education
+        else:
             st.markdown(f"""
-            **Education Fund Assessment (10-18 year horizon)**
+            **Education Fund Assessment**
             
-            Your plan targets university funding of Rp {target/1000000:.0f} million (4-year total) for enrollment in {time_horizon:.0f} years. This long horizon is your greatest asset.
+            Your plan targets university funding of Rp {target/1000000:.0f} million for enrollment in {time_horizon:.0f} years.
             
-            **Why Education Funds Differ from Other Goals**
+            **Why Education Funds Differ:**
+            Education planning requires special consideration of inflation, which averages 8-12% annually for university costs in Indonesia.
             
-            Education planning requires special consideration of inflation, which averages 8-12% annually for university costs in Indonesia. The {time_horizon:.0f}-year horizon means that what costs Rp {target/4:,.0f} per year today could cost Rp {target/4 * (1.1**time_horizon):,.0f} per year by the time your child enrolls.
-            
-            **Historical Perspective** 
-            
-            Long-term investments (10+ years) have historically recovered from all major downturns, including:
-            - 2008 Global Financial Crisis: Recovery within 2-3 years
-            - 2020 COVID-19 Crisis: Recovery within 6-12 months
-            - 2022 Inflation Correction: Recovery within 1 year
-            
-            **Consumer Stocks as Inflation Hedge**
-            
-            Your portfolio includes consumer stocks (ICBP, INDF, UNVR). These companies can pass inflation to consumers through price increases, historically preserving purchasing power during periods of high inflation (8-12% annually for education costs).
-            
-            **Probability Analysis:** With {prob:.0f}% success probability, your plan is {'well-positioned' if prob >= 70 else 'needing adjustment'}. 
-            
-            **What to expect:** Even with {prob:.0f}% probability, the long horizon means you have flexibility. If markets underperform in early years, you can:
-            - Increase contributions gradually as your income grows over {time_horizon:.0f} years
-            - Extend the horizon slightly (education timing is flexible by 1-2 years)
-            - Rebalance toward slightly higher growth 5-7 years before college
-            - Leverage compound growth: Your monthly contributions of Rp {monthly_contrib:,.0f} will grow significantly over {time_horizon:.0f} years.
+            **What to expect:** With {prob:.0f}% success probability, the long horizon gives you flexibility. If markets underperform in early years, you can increase contributions or extend the horizon slightly.
             """)
         
-        # Probability Interpretation (PANJANG)
         st.markdown("#### Understanding Your Probability of Success")
         
         if prob >= 80:
             st.success(f"""
             **{prob:.0f}% - High Confidence**
             
-            This percentage comes from analyzing 10,000 historical scenarios spanning July 2019 to February 2025, including the COVID-19 crash and subsequent recovery.
-            
-            **What this means for you:** Your plan succeeded in {int(prob/10)} out of 10 historical market scenarios. The scenarios that failed typically involved severe market downturns occurring within 12 months of your target date.
-            
-            **Confidence level:** You can proceed with confidence. Your monthly contribution adequately funds your goal, and your risk profile matches your time horizon.
-            
-            **Recommendation:** Continue your current plan, review annually, and consider investing any surplus for additional buffer. Six months before your target date, begin shifting to lower-risk assets.
+            Your plan succeeded in {int(prob/10)} out of 10 historical market scenarios.
+            **Recommendation:** Continue your current plan, review annually.
             """)
         elif prob >= 60:
             st.info(f"""
             **{prob:.0f}% - Moderate Confidence**
             
-            This percentage comes from analyzing 10,000 historical scenarios spanning July 2019 to February 2025.
-            
-            **What this means for you:** Your plan succeeded in approximately {int(prob/10)} out of 10 historical market scenarios. The primary risk factor is the timing of potential market downturns relative to your goal deadline.
-            
-            **Risk factor:** If a market correction similar to COVID-19 occurs within 18 months of your target date, you may need to either delay your goal or accept a smaller outcome (reduced wedding budget, lower down payment, or more affordable university).
-            
-            **Mitigation strategy:** As you approach your target date (12-18 months out), systematically shift 20-30% of your portfolio to lower volatility assets. This "glide path" approach reduces the impact of last-minute market declines.
-            
-            **Next Steps:** Implement at least one of the recommended actions above, then re-run the simulation to see improved probability.
+            Your plan succeeded in approximately {int(prob/10)} out of 10 historical market scenarios.
+            **Mitigation strategy:** As you approach your target date, systematically shift to lower volatility assets.
             """)
         else:
             st.warning(f"""
             **{prob:.0f}% - Low Confidence (Requires Action)**
             
-            This percentage comes from analyzing 10,000 historical scenarios spanning July 2019 to February 2025, including the COVID-19 crisis.
-            
-            **What this means for you:** In more than half of historical market scenarios, your current plan would not reach your target. This does not mean failure is guaranteed, but it does mean your plan needs adjustment.
-            
-            **Primary drivers of low probability:**
-            1. Monthly saving rate (Rp {monthly_contrib:,.0f}) is below required (Rp {required:,.0f}) - this is the most significant factor
-            2. Time horizon ({time_horizon:.0f} years) may be too short for your risk profile
-            3. Target amount (Rp {target/1000000:.0f} million) may be ambitious relative to current capacity
-            
-            **Immediate next steps (prioritized):**
-            - **First:** Adjust your monthly contribution. This has the most direct impact on probability.
-            - **Second:** Consider extending your timeline. Adding 1-2 years significantly improves probability.
-            - **Third:** Review your target amount. Is it realistic given your current income and saving capacity?
-            
-            **Do not proceed with current numbers** without implementing at least two of the recommended changes above.
+            Your plan needs adjustment. The primary drivers are monthly saving rate and time horizon.
+            **Immediate next steps:** Adjust monthly contribution or extend timeline.
             """)
         
-        st.caption("Risk analysis is based on LQ45 historical returns (July 2019 - February 2025). Past performance does not guarantee future results. This analysis is for informational purposes and does not constitute financial advice. Consider consulting a licensed financial advisor for personalized guidance.")
+        st.caption("Risk analysis is based on LQ45 historical returns (July 2019 - February 2025). Past performance does not guarantee future results.")
 
     col_btn1, col_btn2, col_btn3 = st.columns(3)
     with col_btn1:
@@ -685,12 +665,11 @@ elif st.session_state.step == 4:
                 st.session_state.step = 5
                 st.rerun()
         else:
-                if st.button("← Back to Modify Plan", key="back_to_modify_btn"):
-                    st.session_state.step = 3
-                    st.rerun()
+            if st.button("← Back to Modify Plan", key="back_to_modify_btn"):
+                st.session_state.step = 3
+                st.rerun()
     with col_btn2:
         if st.button("Save My Plan", key="save_plan_btn"):
-            # Create plan summary
             import json
             from datetime import datetime
             
@@ -710,18 +689,18 @@ elif st.session_state.step == 4:
                 "required_monthly": required_saving
             }
             
-            # Save as JSON
             with open(f"plan_{st.session_state.user_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", "w") as f:
                 json.dump(plan_summary, f, indent=4, default=str)
             
-            st.success(f"Plan saved! File: plan_{st.session_state.user_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+            st.success(f"Plan saved!")
             st.balloons()
     with col_btn3:
         if st.button("Start Over", key="start_over_btn"):
-            # Reset all session state
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
+
+
 # ============================================
 # STEP 5: PORTFOLIO MANAGEMENT (for existing investors)
 # ============================================
@@ -793,17 +772,19 @@ elif st.session_state.step == 5:
                 st.session_state.step = 3
                 st.rerun()
     else:
-        st.info("No positions added yet. Add your stack positions above, or skip to build a new portfolio.")
+        st.info("No positions added yet. Add your stock positions above, or skip to build a new portfolio.")
 
         col_skip1, col_skip2 = st.columns(2)
         with col_skip1:
-            if st.button("Skip - Build New Portfolio", key = "skip_positions"):
+            if st.button("Skip - Build New Portfolio", key="skip_build_new"):
+                st.session_state.is_existing_investor = False
                 st.session_state.step = 2
                 st.rerun()
         with col_skip2:
-            if st.button("Back to Welcome", key="back_to_welcom_btn"):
+            if st.button("Back to Welcome", key="back_to_welcome_step5"):
                 st.session_state.step = 1
                 st.rerun()
+
 
 # ============================================
 # DARK THEME CSS

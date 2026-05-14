@@ -141,6 +141,11 @@ elif st.session_state.step == 2:
     st.markdown(f"### Hello {st.session_state.user_name}. Select Your Portfolio Stocks")
     st.markdown("Choose 2 to 8 stocks for your portfolio. You can adjust the allocation percentage for each stock. The total allocation must sum to 100%.")
     
+    if "stock_lots" not in st.session_state:
+        st.session_state.stock_lots = {}
+    if "stock_purchase_dates" not in st.session_state:
+        st.session_state.stock_purchase_dates = {}
+
     stocks_by_sector = {}
     for stock in emiten_clean:
         sector = SECTOR_MAP.get(stock, "Other")
@@ -163,40 +168,93 @@ elif st.session_state.step == 2:
                 else:
                     if stock in st.session_state.selected_stocks:
                         st.session_state.selected_stocks.remove(stock)
+
+                        if stock in st.session_state.stock_lots:
+                            del st.session_state.stock_lots[stocks]
+                        if stock in st.session_state.stock_purchase_dates:
+                            del st.session_state.stock_purchase_dates[stocks]
     
     if len(st.session_state.selected_stocks) > 0:
         st.markdown("---")
-        st.markdown("### Set Your Allocation (%)")
-        st.markdown("Adjust the percentage for each selected stock. The total must equal 100%.")
-        
-        allocation_cols = st.columns(min(4, len(st.session_state.selected_stocks)))
-        total_alloc = 0
-        default_pct = 100 // len(st.session_state.selected_stocks) if len(st.session_state.selected_stocks) > 0 else 0
-        remainder = 100 - (default_pct * len(st.session_state.selected_stocks))
+        st.markdown("### Set Your Investment Details")
+        st.markdown("For each selected stock, specify the number of lots and purchase date")
+        st.caption("Note: 1 lot = 100 shares")
+
         
         for i, stock in enumerate(st.session_state.selected_stocks):
-            col_idx = i % 4
-            with allocation_cols[col_idx]:
-                current_val = st.session_state.stock_allocations.get(stock, default_pct)
-                if i == len(st.session_state.selected_stocks) - 1 and remainder > 0:
-                    current_val = default_pct + remainder
-                pct = st.number_input(
-                    f"{stock} (%)",
-                    min_value=0.0,
-                    max_value=100.0,
-                    value=float(current_val),
-                    step=5.0,
-                    key=f"alloc_{stock}"
-                )
-                st.session_state.stock_allocations[stock] = pct
-                total_alloc += pct
-        
-        st.markdown(f"**Total Allocation: {total_alloc}%**")
-        
+            with st.container():
+                st.markdown(f"**{stock}**")
 
+                col_lot, col_date, col_alloc = st.columns([2,3,2])
+
+                with col_lot:
+                    current_lot = st.session_state.stock_lots.get(stock, 1)
+                    lot_size = st.number_input(
+                        "Lot Size",
+                        min_value=1,
+                        max_value=1000,
+                        value=current_lot,
+                        step=1,
+                        key=f"lot_{stock}"
+                    )
+                    st.session_state.stock_lots[stock] = lot_size
+                    shares = lot_size * 100
+                    st.caption(f"Shares: {shares:,}")
+                
+                with col_date:
+                    current_date = st.session_state.stock_purchase_dates.get(stock, date.today())
+                    purchase_date = st.date_input(
+                        "Purchase Date",
+                        value=current_date,
+                        key=f"date_{stock}"
+                    )
+                    st.session_state.stock_purchase_dates[stock] = purchase_date
+
+                    try:
+                        df_stock = all_stocks_data[stock]
+                        closest_price = df_stock[df_stock.index <= pd.to_datetime(purchase_date)]['close'].iloc[-1] if len(df_stock[df_stock.index <= pd.to_datetime(purchase_date)]) > 0 else df_stock['close'].iloc[0]
+                        st.caption(f"Est. Price: Rp {closest_price:,.0f}")
+                        st.session_state.stock_estimated_prices = st.session_state.get("stock_estimated_prices", {})
+                        st.session_state.stock_estimated_prices[stock] = closest_price
+                    except:
+                        st.caption("Price not available")
+                
+                with col_alloc:
+                    current_alloc = st.session_state.stock_allocations.get(stock, 0)
+                    allocation = st.number_input(
+                        "Allocation (%)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=float(current_alloc),
+                        step=5.0,
+                        key=f"alloc_{stock}"
+                    )
+                    st.session_state.stock_allocations[stock] = allocation
+                
+                st.markdown("---")
+        
+        # Hitung total alokasi
+        total_alloc = sum(st.session_state.stock_allocations.get(s, 0) for s in st.session_state.selected_stocks)
+        
+        # Hitung total investasi berdasarkan lot dan harga estimasi
+        total_investment = 0
+        for stock in st.session_state.selected_stocks:
+            lot = st.session_state.stock_lots.get(stock, 0)
+            estimated_price = st.session_state.stock_estimated_prices.get(stock, 0)
+            total_investment += lot * 100 * estimated_price
+        
+        st.markdown(f"**Total Allocation: {total_alloc:.1f}%**")
+        if total_investment > 0:
+            st.markdown(f"**Estimated Total Investment:** Rp {total_investment:,.0f}")
+        
+        if total_alloc != 100:
+            st.warning(f"Total allocation must be 100%. Current total: {total_alloc:.1f}%")
+        else:
+            st.success("Allocation balanced!")
+    
     else:
         st.info("Please select at least one stock to continue.")
-
+    
     col_btn1, col_btn2, col_btn3 = st.columns(3)
     with col_btn1:
         if st.button("← Back to Welcome", key="back_to_welcome_step2"):
@@ -206,6 +264,9 @@ elif st.session_state.step == 2:
         if st.button("Clear Selection", key="clear_selection"):
             st.session_state.selected_stocks = []
             st.session_state.stock_allocations = {}
+            st.session_state.stock_lots = {}
+            st.session_state.stock_purchase_dates = {}
+            st.session_state.stock_estimated_prices = {}
             st.rerun()
     with col_btn3:
         if st.button("Next: Define Goal", key="next_goal_btn_fixed"):
@@ -213,7 +274,7 @@ elif st.session_state.step == 2:
                 st.session_state.step = 3
                 st.rerun()
             else:
-                st.error(f"Total allocation must be 100%. Current total: {total_alloc}%")
+                st.error(f"Total allocation must be 100%. Current total: {total_alloc:.1f}%")
 
 # ============================================
 # STEP 3: SET GOAL & RISK PROFILE
@@ -317,9 +378,14 @@ elif st.session_state.step == 3:
     
     col_btn1, col_btn2, col_btn3 = st.columns(3)
     with col_btn1:
-        if st.button("← Back to Stock Selection", key="back_to_stocks_btn"):
-            st.session_state.step = 2
-            st.rerun()
+        if st.session_state.get("is_existing_investor",False):
+            if st.button("← Back to Portfolio Review", key="back_to_portfolio_from_goal"):
+                st.session_state.step = 5
+                st.rerun()
+        else:
+            if st.button("← Back to Stock Selection", key="back_to_stocks_btn"):
+                st.session_state.step = 2
+                st.rerun()
     with col_btn2:
         if st.button("Reset to Welcome", key="reset_to_welcome"):
             for key in list(st.session_state.keys()):
@@ -338,11 +404,22 @@ elif st.session_state.step == 3:
 elif st.session_state.step == 4:
     st.markdown(f"### Your Financial Plan, {st.session_state.user_name}")
     
-    selected_stocks = [s for s in st.session_state.selected_stocks 
-                       if st.session_state.stock_allocations.get(s, 0) > 0]
-    weights = [st.session_state.stock_allocations.get(s, 0) / 100 for s in selected_stocks]
+    if st.session_state.get("is_existing_investor", False):
+        selected_stocks = st.session_state.get("existing_portfolio_stocks", [])
+        weights = [1/len(selected_stocks)] * len(selected_stocks) if selected_stocks else []
+    else:
+        selected_stocks = [s for s in st.session_state.selected_stocks 
+                          if st.session_state.stock_allocations.get(s, 0) > 0]
+        weights = [st.session_state.stock_allocations.get(s, 0) / 100 for s in selected_stocks]
     
-    proxy_stock = selected_stocks[0] if selected_stocks else "BBCA"
+    if not selected_stocks:
+        st.error("No stocks selected in your portfolio. Please go back and selected at least one stock.")
+        if st.button("← Back to Stock Selection"):
+            st.session_state.step = 2
+            st.rerun()
+        st.stop()
+
+    proxy_stock = selected_stocks[0]
     
     df_proxy = all_stocks_data[proxy_stock].copy()
     returns, weights_bs = prepare_bootstrap_data(df_proxy, st.session_state.crisis_weight)
@@ -603,9 +680,14 @@ elif st.session_state.step == 4:
 
     col_btn1, col_btn2, col_btn3 = st.columns(3)
     with col_btn1:
-        if st.button("← Back to Modify Plan", key="back_to_modify_btn"):
-            st.session_state.step = 3
-            st.rerun()
+        if st.session_state.get("is_existing_investor", False):
+            if st.button("← Back to Portfolio Review", key="back_to_portfolio_btn"):
+                st.session_state.step = 5
+                st.rerun()
+        else:
+                if st.button("← Back to Modify Plan", key="back_to_modify_btn"):
+                    st.session_state.step = 3
+                    st.rerun()
     with col_btn2:
         if st.button("Save My Plan", key="save_plan_btn"):
             # Create plan summary
@@ -696,32 +778,32 @@ elif st.session_state.step == 5:
         st.markdown(f"**Current Value:** Rp {total_current:,.0f}")
         st.markdown(f"**Unrealized Return:** {((total_current - total_cost) / total_cost * 100):.1f}%")
         
-        if st.button("Clear All Positions", key="clear_positions_btn"):
-            st.session_state.user_positions = []
-            st.rerun()
-        
-        if st.button("Continue to Goal Setting", key="continue_to_goal"):
-            st.session_state.step = 2
-            st.rerun()
-    else:
-        if st.button("Skip - Build Portfolio Later", key="skip_positions"):
-            st.session_state.step = 2
-            st.rerun()
+        st.session_state.existing_portfolio_stocks = df['Stock'].tolist()
+        st.session_state.is_existing_investor = True
+        st.session_state.user_portfolio_value = total_current
+        st.session_state.user_portfolio_cost = total_cost
 
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
-    with col_btn1:
-        if st.button("← Back to Welcome", key="back_to_welcome_btn"):
-            st.session_state.step = 1
-            st.rerun()
-    with col_btn2:
-        if st.button("Clear All Positions", key="clear_all_btn"):
-            st.session_state.user_positions = []
-            st.rerun()
-    with col_btn3:
-        if st.button("Start Over", key="start_over_btn_step5"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("Clear All Positions", key="clear_positions_btn"):
+                st.session_state.user_positions = []
+                st.rerun()
+        with col_btn2:
+            if st.button("Calculate My Plan", key="calculate_from_portfolio"):
+                st.session_state.step = 3
+                st.rerun()
+    else:
+        st.info("No positions added yet. Add your stack positions above, or skip to build a new portfolio.")
+
+        col_skip1, col_skip2 = st.columns(2)
+        with col_skip1:
+            if st.button("Skip - Build New Portfolio", key = "skip_positions"):
+                st.session_state.step = 2
+                st.rerun()
+        with col_skip2:
+            if st.button("Back to Welcome", key="back_to_welcom_btn"):
+                st.session_state.step = 1
+                st.rerun()
 
 # ============================================
 # DARK THEME CSS

@@ -6,4 +6,3 @@ seaborn
 plotly
 scikit-learn
 scipy
-EOF

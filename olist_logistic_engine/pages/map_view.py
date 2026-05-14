@@ -33,6 +33,44 @@ def render_map_view():
     warehouse_candidates = data.get('warehouse_candidates', None)
     
     # ============================================
+    # CHECK REQUIRED COLUMNS
+    # ============================================
+    required_cols = ['seller_lat', 'seller_lng', 'customer_lat', 'customer_lng']
+    missing_cols = [col for col in required_cols if col not in df_network.columns]
+    
+    if missing_cols:
+        st.warning(f"Missing coordinate columns. Attempting to add from state centroids...")
+        
+        if not state_centroids.empty:
+            # Add seller coordinates
+            if 'seller_state' in df_network.columns:
+                df_network = df_network.merge(
+                    state_centroids[['state', 'lat', 'lng']].rename(
+                        columns={'state': 'seller_state', 'lat': 'seller_lat', 'lng': 'seller_lng'}
+                    ),
+                    on='seller_state',
+                    how='left'
+                )
+            
+            # Add customer coordinates
+            if 'customer_state' in df_network.columns:
+                df_network = df_network.merge(
+                    state_centroids[['state', 'lat', 'lng']].rename(
+                        columns={'state': 'customer_state', 'lat': 'customer_lat', 'lng': 'customer_lng'}
+                    ),
+                    on='customer_state',
+                    how='left'
+                )
+    
+    # Drop rows with missing coordinates
+    df_network = df_network.dropna(subset=['seller_lat', 'seller_lng', 'customer_lat', 'customer_lng'])
+    
+    if df_network.empty:
+        st.error("No routes with complete coordinate data available.")
+        st.info("Please ensure network_data.parquet has seller_lat, seller_lng, customer_lat, customer_lng columns.")
+        return
+    
+    # ============================================
     # SIDEBAR FILTERS
     # ============================================
     with st.sidebar:
@@ -68,13 +106,9 @@ def render_map_view():
     # ============================================
     # MAP STYLE - FREE, NO TOKEN REQUIRED
     # ============================================
-    # CartoDB Positron (Light) - for bright theme
     CARTO_LIGHT = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
-    
-    # CartoDB Dark Matter (Dark) - for dark theme
     CARTO_DARK = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
     
-    # Select style based on user preference
     SELECTED_MAP_STYLE = CARTO_DARK
     
     # ============================================
@@ -107,8 +141,7 @@ def render_map_view():
     
     df_filtered['delivery_days_formatted'] = df_filtered['avg_delivery_days'].round(1)
     df_filtered['orders_formatted'] = df_filtered['order_count'].apply(lambda x: f"{x:,}")
-
-    df_filtered['warehouse_id'] = ''
+    
     # ============================================
     # PREPARE NODE DATA (State Centroids)
     # ============================================
@@ -127,10 +160,9 @@ def render_map_view():
     wh_data = None
     if show_warehouses and warehouse_candidates is not None and not warehouse_candidates.empty:
         wh_data = warehouse_candidates.copy()
-
         if 'warehouse_id' not in wh_data.columns:
             wh_data['warehouse_id'] = [f"WH-{i+1}" for i in range(len(wh_data))]
-        
+    
     # ============================================
     # CREATE LAYERS
     # ============================================
@@ -218,20 +250,18 @@ def render_map_view():
         
         # Tooltip configuration
         tooltip = {
-        "html": """
-    <div style="background: #1e293b; padding: 8px 12px; border-radius: 8px; 
-                border-left: 3px solid #f97316; font-family: 'Inter', sans-serif;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-        
-        <b style="color: #f97316;">{seller_state} → {customer_state}</b><br>
-        <span style="color: #94a3b8;">Orders:</span> <b style="color: white;">{orders_formatted}</b><br>
-        <span style="color: #94a3b8;">Delivery:</span> <b style="color: white;">{delivery_days_formatted} days</b><br>
-        <span style="color: #94a3b8;">Performance:</span> <b style="color: #f97316;">{performance}</b>
-        
-    </div>
-    """,
-    "style": {"backgroundColor": "transparent"}
-}
+            "html": """
+            <div style="background: #1e293b; padding: 8px 12px; border-radius: 8px; 
+                        border-left: 3px solid #f97316; font-family: 'Inter', sans-serif;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <b style="color: #f97316;">{seller_state} → {customer_state}</b><br>
+                <span style="color: #94a3b8;">Orders:</span> <b style="color: white;">{orders_formatted}</b><br>
+                <span style="color: #94a3b8;">Delivery:</span> <b style="color: white;">{delivery_days_formatted} days</b><br>
+                <span style="color: #94a3b8;">Performance:</span> <b style="color: #f97316;">{performance}</b>
+            </div>
+            """,
+            "style": {"backgroundColor": "transparent"}
+        }
         
         # Create deck with FREE map style
         deck = pdk.Deck(
@@ -255,58 +285,19 @@ def render_map_view():
     col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
-        st.markdown(f"""
-        <div style="background: #ffffff; border-radius: 12px; padding: 1rem 1.25rem; 
-                    border: 1px solid #e2e8f0; height: 100%;">
-              <div style="font-size: 1.75rem; font-weight: 700; color: #0f172a;">{len(df_filtered):,}</div>
-              <div style="font-size: 0.7rem; color: #64748b; font-weight: 500; 
-                        text-transform: uppercase; letter-spacing: 0.03em; margin-top: 0.5rem;">Active Routes</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+        st.metric("Active Routes", f"{len(df_filtered):,}")
     with col2:
-        total_orders = df_filtered['order_count'].sum()
-        st.markdown(f"""
-        <div style="background: #ffffff; border-radius: 12px; padding: 1rem 1.25rem; 
-                    border: 1px solid #e2e8f0; height: 100%;">
-            <div style="font-size: 1.75rem; font-weight: 700; color: #0f172a;">{total_orders:,.0f}</div>
-            <div style="font-size: 0.7rem; color: #64748b; font-weight: 500; 
-                      text-transform: uppercase; letter-spacing: 0.03em; margin-top: 0.5rem;">Total Orders</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+        total_orders_val = df_filtered['order_count'].sum()
+        st.metric("Total Orders", f"{total_orders_val:,.0f}")
     with col3:
-          avg_delivery = df_filtered['avg_delivery_days'].mean() if 'avg_delivery_days' in df_filtered.columns else 0
-          st.markdown(f"""
-          <div style="background: #ffffff; border-radius: 12px; padding: 1rem 1.25rem; 
-                      border: 1px solid #e2e8f0; height: 100%;">
-              <div style="font-size: 1.75rem; font-weight: 700; color: #0f172a;">{avg_delivery:.1f}</div>
-              <div style="font-size: 0.7rem; color: #64748b; font-weight: 500; 
-                          text-transform: uppercase; letter-spacing: 0.03em; margin-top: 0.5rem;">Avg Delivery (days)</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+        avg_delivery_val = df_filtered['avg_delivery_days'].mean() if 'avg_delivery_days' in df_filtered.columns else 0
+        st.metric("Avg Delivery", f"{avg_delivery_val:.1f} days")
     with col4:
-          critical_count = len(df_filtered[df_filtered['performance'] == 'Critical'])
-          st.markdown(f"""
-          <div style="background: #ffffff; border-radius: 12px; padding: 1rem 1.25rem; 
-                      border: 1px solid #e2e8f0; height: 100%;">
-              <div style="font-size: 1.75rem; font-weight: 700; color: #ef4444;">{critical_count}</div>
-              <div style="font-size: 0.7rem; color: #64748b; font-weight: 500; 
-                          text-transform: uppercase; letter-spacing: 0.03em; margin-top: 0.5rem;">Critical Routes</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+        critical_count_val = len(df_filtered[df_filtered['performance'] == 'Critical'])
+        st.metric("Critical Routes", f"{critical_count_val}")
     with col5:
-          fast_count = len(df_filtered[df_filtered['performance'] == 'Fast'])
-          st.markdown(f"""
-          <div style="background: #ffffff; border-radius: 12px; padding: 1rem 1.25rem; 
-                      border: 1px solid #e2e8f0; height: 100%;">
-              <div style="font-size: 1.75rem; font-weight: 700; color: #10b981;">{fast_count}</div>
-              <div style="font-size: 0.7rem; color: #64748b; font-weight: 500; 
-                          text-transform: uppercase; letter-spacing: 0.03em; margin-top: 0.5rem;">Fast Routes</div>
-    </div>
-    """, unsafe_allow_html=True)
+        fast_count_val = len(df_filtered[df_filtered['performance'] == 'Fast'])
+        st.metric("Fast Routes", f"{fast_count_val}")
           
     # ============================================
     # INSIGHTS ROW
@@ -318,67 +309,13 @@ def render_map_view():
     
     with col_i1:
         unique_sellers = df_filtered['seller_state'].nunique() if 'seller_state' in df_filtered.columns else 0
-        st.markdown(f"""
-        <div class="card">
-            <div class="insight-title">Active Seller States</div>
-            <div class="insight-value">{unique_sellers}</div>
-            <div class="insight-trend">states with outbound shipments</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric("Active Seller States", f"{unique_sellers}")
     
     with col_i2:
         unique_buyers = df_filtered['customer_state'].nunique() if 'customer_state' in df_filtered.columns else 0
-        st.markdown(f"""
-        <div class="card">
-            <div class="insight-title">Active Buyer States</div>
-            <div class="insight-value">{unique_buyers}</div>
-            <div class="insight-trend">states receiving deliveries</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric("Active Buyer States", f"{unique_buyers}")
     
     with col_i3:
         on_time = len(df_filtered[df_filtered['avg_delivery_days'] <= 15]) if 'avg_delivery_days' in df_filtered.columns else 0
         on_time_pct = (on_time / len(df_filtered) * 100) if len(df_filtered) > 0 else 0
-        st.markdown(f"""
-        <div class="card">
-            <div class="insight-title">On-Time Delivery Rate</div>
-            <div class="insight-value">{on_time_pct:.0f}%</div>
-            <div class="insight-trend">delivered within 15 days</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-
-def add_insight_styles():
-    """Add CSS styles for insight cards"""
-    st.markdown("""
-    <style>
-    .insight-title {
-        font-size: 0.75rem;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        margin-bottom: 0.5rem;
-    }
-    .insight-value {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #0f172a;
-    }
-    .insight-trend {
-        font-size: 0.7rem;
-        color: #94a3b8;
-        margin-top: 0.25rem;
-    }
-    .card {
-        background: #ffffff;
-        border-radius: 12px;
-        padding: 1rem;
-        border: 1px solid #e2e8f0;
-        height: 100%;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-
-# Call CSS function
-add_insight_styles()
+        st.metric("On-Time Delivery Rate", f"{on_time_pct:.0f}%")

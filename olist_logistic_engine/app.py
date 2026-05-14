@@ -894,56 +894,7 @@ elif page == "Performance Reports":
         st.dataframe(display_df, use_container_width=True)
     
     st.markdown("---")
-    
-    # ============================================
-    # WHAT-IF SIMULATION RESULTS
-    # ============================================
-    st.markdown("### What-If Simulation Results")
-    
-    simulation = data.get('simulation')
-    
-    if simulation is not None and len(simulation) > 0:
-        st.markdown("Simulation of warehouse impact on delivery performance based on DBSCAN clustering results.")
-        
-        sim_col1, sim_col2, sim_col3 = st.columns(3)
-        
-        with sim_col1:
-            routes_simulated = len(simulation)
-            st.metric("Routes Simulated", f"{routes_simulated:,}")
-        
-        with sim_col2:
-            if 'distance_saved_km' in simulation.columns:
-                worsened = len(simulation[simulation['distance_saved_km'] < 0])
-                st.metric("Routes Worsened", f"{worsened}", delta="Negative impact")
-            else:
-                st.metric("Routes Worsened", "N/A")
-        
-        with sim_col3:
-            if 'distance_saved_km' in simulation.columns:
-                improved = len(simulation[simulation['distance_saved_km'] > 0])
-                st.metric("Routes Improved", f"{improved}")
-            else:
-                st.metric("Routes Improved", "0")
-        
-        st.warning("""
-        **Simulation Finding:** Zero routes showed improvement. Warehouses placed at DBSCAN centroids increase routing distance.
-        
-        **Conclusion:** Centroids are statistically correct but logistically wrong. Warehouse investment is not recommended at current order volume.
-        """)
-        
-        # Show simulation data table
-        with st.expander("View Simulation Details"):
-            sim_display_cols = ['seller_state', 'customer_state', 'distance_km', 'estimated_new_distance', 'distance_saved']
-            available_sim_cols = [c for c in sim_display_cols if c in simulation.columns]
-            if available_sim_cols:
-                st.dataframe(simulation[available_sim_cols].head(20), use_container_width=True)
-            else:
-                st.dataframe(simulation.head(20), use_container_width=True)
-    else:
-        st.info("What-if simulation data not available. Run the what-if simulation in the notebook first.")
-    
-    st.markdown("---")
-    
+   
     # ============================================
     # COMPARE TWO PERFORMANCE TIERS
     # ============================================

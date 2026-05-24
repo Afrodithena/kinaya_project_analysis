@@ -1,847 +1,1299 @@
 """
-Financial Planning Engine - Main Dashboard
-Professional financial planning tool based on LQ45 historical data (2019-2025)
+================================================================================
+LQ45 FINANCIAL PLANNING ENGINE
+================================================================================
+Professional Financial Planning Tool
+Based on LQ45 Indonesia Stock Exchange Data (July 2019 - February 2025)
+Methodology: Crisis-Weighted Bootstrap Simulation (10,000 paths)
+================================================================================
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import date
+import plotly.express as px
+import plotly.graph_objects as go
+import plotly.io as pio
+from datetime import date, datetime
+import warnings
+warnings.filterwarnings('ignore')
 
 from src.data.loader import load_all_stocks
 from src.features.returns import calculate_returns
+from src.features.volatility import calculate_volatility
+from src.features.drawdown import calculate_drawdown
 from src.simulation.bootstrap import BootstrapSimulator, add_crisis_weights
 from src.utils.constants import SECTOR_MAP
-from src.recommendation.engine import (
-    build_stock_features_dataframe,
-    normalize_features,
-    generate_recommendation
-)
-from src.advisory.portfolio_manager import PortfolioManager
 from src.advisory.lq45_overview import LQ45_OVERVIEW
 
-st.set_page_config(page_title="Financial Planning Engine", page_icon="", layout="wide")
+# ============================================================================
+# PAGE CONFIGURATION
+# ============================================================================
+st.set_page_config(
+    page_title="LQ45 Financial Planning Engine",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-
-def prepare_bootstrap_data(df, use_crisis_weight=True):
-    """Prepare returns and weights for bootstrap simulation."""
-    df = df.copy()
-    df = calculate_returns(df)
-    
-    if use_crisis_weight:
-        df = add_crisis_weights(df)
-        df_clean = df[df["daily_return"].notna()]
-        returns = df_clean["daily_return"].values
-        weights = df_clean["bootstrap_weight"].values
-        return returns, weights
-    else:
-        returns = df["daily_return"].dropna().values
-        return returns, None
-
-
+# ============================================================================
+# DATA LOADING
+# ============================================================================
 @st.cache_data
 def load_data():
     return load_all_stocks()
 
+EMITEN, STOCK_DATA = load_data()
 
-emiten_clean, all_stocks_data = load_data()
+# ============================================================================
+# COLOR SYSTEM
+# ============================================================================
+COLORS = {
+    "primary": "#1a73e8",
+    "success": "#34a853",
+    "warning": "#fbbc04",
+    "danger": "#ea4335",
+    "dark": "#1e293b",
+    "text": "#334155",
+    "text_secondary": "#64748b",
+    "background": "#f8fafc",
+    "surface": "#ffffff",
+    "border": "#e2e8f0"
+}
 
+# ============================================================================
+# PLOTLY CUSTOM TEMPLATE FOR DARK TEXT
+# ============================================================================
+custom_template = pio.templates["simple_white"]
+custom_template.layout.title.font.color = COLORS["dark"]
+custom_template.layout.font.color = COLORS["text"]
+custom_template.layout.xaxis.title.font.color = COLORS["text"]
+custom_template.layout.yaxis.title.font.color = COLORS["text"]
+custom_template.layout.xaxis.tickfont.color = COLORS["text_secondary"]
+custom_template.layout.yaxis.tickfont.color = COLORS["text_secondary"]
+custom_template.layout.legend.font.color = COLORS["text"]
+pio.templates["custom"] = custom_template
+pio.templates.default = "custom"
 
-@st.cache_data
-def get_features_data():
-    """Build features dataframe for recommendation engine (global scope)."""
-    df_features = build_stock_features_dataframe(all_stocks_data)
-    df_norm = normalize_features(df_features)
-    return df_features, df_norm
-
-
-# Initialize session state
-if "step" not in st.session_state:
-    st.session_state.step = 1
-if "user_name" not in st.session_state:
-    st.session_state.user_name = ""
-if "user_age" not in st.session_state:
-    st.session_state.user_age = 25
-if "has_lq45_experience" not in st.session_state:
-    st.session_state.has_lq45_experience = None
-if "user_positions" not in st.session_state:
-    st.session_state.user_positions = []
-if "selected_stocks" not in st.session_state:
-    st.session_state.selected_stocks = []
-if "stock_allocations" not in st.session_state:
-    st.session_state.stock_allocations = {}
-if "goal" not in st.session_state:
-    st.session_state.goal = None
-if "target_amount" not in st.session_state:
-    st.session_state.target_amount = 100_000_000
-if "years" not in st.session_state:
-    st.session_state.years = 2.0
-if "monthly_saving" not in st.session_state:
-    st.session_state.monthly_saving = 2_000_000
-if "risk_profile" not in st.session_state:
-    st.session_state.risk_profile = "Moderate"
-if "crisis_weight" not in st.session_state:
-    st.session_state.crisis_weight = True
-
-
-# ============================================
-# STEP 1: WELCOME SCREEN + LQ45 EXPERIENCE
-# ============================================
-if st.session_state.step == 1:
-    st.markdown("### Welcome to Your Financial Planning Journey")
-    st.markdown("This engine analyzes LQ45 stock market data from July 2019 to February 2025 to help you make informed financial decisions for your life goals. Unlike traditional calculators that assume fixed returns, this tool uses historical market behavior, including the 2020 COVID-19 crisis, to provide realistic projections.")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        user_name = st.text_input("Your Name / Initial", value=st.session_state.user_name, key="name_input")
-        st.session_state.user_name = user_name
-    with col2:
-        user_age = st.number_input("Your Age", min_value=18, max_value=60, value=st.session_state.user_age, key="age_input")
-        st.session_state.user_age = user_age
-    with col3:
-        st.date_input("Today's Date", value=date.today(), key="today_date")
-    
-    st.markdown("---")
-    st.markdown("### Before We Begin")
-    st.markdown(LQ45_OVERVIEW)
-    
-    experience = st.radio(
-        "Have you ever owned LQ45 stocks before?",
-        ["No, this is my first time investing in LQ45", 
-         "Yes, I currently own LQ45 stocks", 
-         "Yes, but I have sold them previously"],
-        key="experience_radio"
-    )
-    
-    st.markdown(f"*Based on {len(emiten_clean)} LQ45 stocks | Period: 2019-2025 | 10,000 Monte Carlo simulation paths*")
-    
-    if "today_date" in st.session_state and st.session_state.today_date:
-        try:
-            st.caption(f"Today: {st.session_state.today_date.strftime('%B %d, %Y')}")
-        except AttributeError:
-            st.caption(f"Today: {st.session_state.today_date}")
-    
-    if st.button("Start Planning", key="start_btn"):
-        if not st.session_state.user_name:
-            st.warning("Please enter your name to continue.")
-        else:
-            st.session_state.has_lq45_experience = experience
-            
-            if experience == "Yes, I currently own LQ45 stocks":
-                st.session_state.step = 5
-            else:
-                st.session_state.step = 2
-            st.rerun()
-
-
-# ============================================
-# STEP 2: SELECT STOCKS (for first-time investors)
-# ============================================
-elif st.session_state.step == 2:
-    st.markdown(f"### Hello {st.session_state.user_name}. Select Your Portfolio Stocks")
-    st.markdown("Choose 2 to 8 stocks for your portfolio. You can adjust the allocation percentage for each stock. The total allocation must sum to 100%.")
-    
-    if "stock_lots" not in st.session_state:
-        st.session_state.stock_lots = {}
-    if "stock_purchase_dates" not in st.session_state:
-        st.session_state.stock_purchase_dates = {}
-
-    stocks_by_sector = {}
-    for stock in emiten_clean:
-        sector = SECTOR_MAP.get(stock, "Other")
-        if sector not in stocks_by_sector:
-            stocks_by_sector[sector] = []
-        stocks_by_sector[sector].append(stock)
-    
-    cols = st.columns(3)
-    sector_list = list(stocks_by_sector.keys())
-    
-    for idx, sector in enumerate(sector_list):
-        col_idx = idx % 3
-        with cols[col_idx]:
-            st.markdown(f"**{sector}**")
-            for stock in stocks_by_sector[sector]:
-                is_checked = stock in st.session_state.selected_stocks
-                if st.checkbox(stock, value=is_checked, key=f"stock_{stock}"):
-                    if stock not in st.session_state.selected_stocks:
-                        st.session_state.selected_stocks.append(stock)
-                else:
-                    if stock in st.session_state.selected_stocks:
-                        st.session_state.selected_stocks.remove(stock)
-
-                        if stock in st.session_state.stock_lots:
-                            del st.session_state.stock_lots[stocks]
-                        if stock in st.session_state.stock_purchase_dates:
-                            del st.session_state.stock_purchase_dates[stocks]
-    
-    if len(st.session_state.selected_stocks) > 0:
-        st.markdown("---")
-        st.markdown("### Set Your Investment Details")
-        st.markdown("For each selected stock, specify the number of lots and purchase date")
-        st.caption("Note: 1 lot = 100 shares")
-
-        
-        for i, stock in enumerate(st.session_state.selected_stocks):
-            with st.container():
-                st.markdown(f"**{stock}**")
-
-                col_lot, col_date, col_alloc = st.columns([2,3,2])
-
-                with col_lot:
-                    current_lot = st.session_state.stock_lots.get(stock, 1)
-                    lot_size = st.number_input(
-                        "Lot Size",
-                        min_value=1,
-                        max_value=1000,
-                        value=current_lot,
-                        step=1,
-                        key=f"lot_{stock}"
-                    )
-                    st.session_state.stock_lots[stock] = lot_size
-                    shares = lot_size * 100
-                    st.caption(f"Shares: {shares:,}")
-                
-                with col_date:
-                    current_date = st.session_state.stock_purchase_dates.get(stock, date.today())
-                    purchase_date = st.date_input(
-                        "Purchase Date",
-                        value=current_date,
-                        key=f"date_{stock}"
-                    )
-                    st.session_state.stock_purchase_dates[stock] = purchase_date
-
-                    try:
-                        df_stock = all_stocks_data[stock]
-                        closest_price = df_stock[df_stock.index <= pd.to_datetime(purchase_date)]['close'].iloc[-1] if len(df_stock[df_stock.index <= pd.to_datetime(purchase_date)]) > 0 else df_stock['close'].iloc[0]
-                        st.caption(f"Est. Price: Rp {closest_price:,.0f}")
-                        st.session_state.stock_estimated_prices = st.session_state.get("stock_estimated_prices", {})
-                        st.session_state.stock_estimated_prices[stock] = closest_price
-                    except:
-                        st.caption("Price not available")
-                
-                with col_alloc:
-                    current_alloc = st.session_state.stock_allocations.get(stock, 0)
-                    allocation = st.number_input(
-                        "Allocation (%)",
-                        min_value=0.0,
-                        max_value=100.0,
-                        value=float(current_alloc),
-                        step=5.0,
-                        key=f"alloc_{stock}"
-                    )
-                    st.session_state.stock_allocations[stock] = allocation
-                
-                st.markdown("---")
-        
-        # Hitung total alokasi
-        total_alloc = sum(st.session_state.stock_allocations.get(s, 0) for s in st.session_state.selected_stocks)
-        
-        # Hitung total investasi berdasarkan lot dan harga estimasi
-        total_investment = 0
-        for stock in st.session_state.selected_stocks:
-            lot = st.session_state.stock_lots.get(stock, 0)
-            estimated_price = st.session_state.stock_estimated_prices.get(stock, 0)
-            total_investment += lot * 100 * estimated_price
-        
-        st.markdown(f"**Total Allocation: {total_alloc:.1f}%**")
-        if total_investment > 0:
-            st.markdown(f"**Estimated Total Investment:** Rp {total_investment:,.0f}")
-        
-        if total_alloc != 100:
-            st.warning(f"Total allocation must be 100%. Current total: {total_alloc:.1f}%")
-        else:
-            st.success("Allocation balanced!")
-    
-    else:
-        st.info("Please select at least one stock to continue.")
-    
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
-    with col_btn1:
-        if st.button("← Back to Welcome", key="back_to_welcome_step2"):
-            st.session_state.step = 1
-            st.rerun()
-    with col_btn2:
-        if st.button("Clear Selection", key="clear_selection"):
-            st.session_state.selected_stocks = []
-            st.session_state.stock_allocations = {}
-            st.session_state.stock_lots = {}
-            st.session_state.stock_purchase_dates = {}
-            st.session_state.stock_estimated_prices = {}
-            st.rerun()
-    with col_btn3:
-        if st.button("Next: Define Goal", key="next_goal_btn_fixed"):
-            if total_alloc == 100:
-                st.session_state.step = 3
-                st.rerun()
-            else:
-                st.error(f"Total allocation must be 100%. Current total: {total_alloc:.1f}%")
-
-# ============================================
-# STEP 3: SET GOAL & RISK PROFILE
-# ============================================
-elif st.session_state.step == 3:
-    st.markdown(f"### Define Your Financial Goal, {st.session_state.user_name}")
-    
-    df_features, df_norm = get_features_data()
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        goal = st.selectbox(
-            "Select your financial objective",
-            ["Wedding Fund (1-3 years)", "KPR Down Payment (3-5 years)", "Child Education (10-18 years)"],
-            key="goal_select"
-        )
-        st.session_state.goal = goal
-        
-        target = st.number_input(
-            "Target amount (Indonesian Rupiah)",
-            min_value=10_000_000,
-            value=100_000_000,
-            step=10_000_000,
-            key="target_input"
-        )
-        st.session_state.target_amount = target
-        
-        if "Wedding" in goal:
-            years = st.slider("Investment time horizon (years)", 1.0, 3.0, 2.0, 0.5, key="years_wedding")
-        elif "KPR" in goal:
-            years = st.slider("Years to save for down payment", 3.0, 5.0, 4.0, 0.5, key="years_kpr")
-        else:
-            years = st.slider("Years until college enrollment", 10, 18, 12, 1, key="years_edu")
-        st.session_state.years = years
-        
-        monthly = st.number_input(
-            "Your monthly saving capacity (Rupiah)",
-            min_value=500_000,
-            value=2_000_000,
-            step=500_000,
-            key="monthly_input"
-        )
-        st.session_state.monthly_saving = monthly
-    
-    with col2:
-        st.markdown("### Investment Profile")
-        risk_profile = st.selectbox(
-            "Select your risk tolerance",
-            ["Conservative", "Moderate", "Aggressive"],
-            key="risk_profile_select"
-        )
-        st.session_state.risk_profile = risk_profile
-        
-        st.markdown("---")
-        st.markdown("### Simulation Parameters")
-        crisis_weight = st.checkbox("Include COVID-19 crisis weighting", value=True, key="crisis_setting")
-        st.session_state.crisis_weight = crisis_weight
-        st.caption("When enabled, the simulation gives higher weight to the March-June 2020 period, providing a more conservative estimate.")
-        
-        st.markdown("---")
-        
-        if st.button("Generate Portfolio Recommendation", key="suggest_btn"):
-            with st.spinner("Analyzing 40 LQ45 stocks based on your profile..."):
-                recommendation = generate_recommendation(
-                    goal=st.session_state.goal,
-                    risk_profile=st.session_state.risk_profile,
-                    df_features=df_features,
-                    df_norm=df_norm,
-                    top_n=5
-                )
-                
-                st.session_state.selected_stocks = recommendation["recommended_stocks"]
-                st.session_state.stock_allocations = recommendation["allocations"]
-                
-                st.success(f"Portfolio generated with {len(recommendation['recommended_stocks'])} stocks")
-                
-                with st.expander("View Recommendation Rationale", expanded=True):
-                    st.markdown(recommendation["strategy"])
-                
-                st.info(recommendation["explanation"])
-                
-                st.markdown("### Recommended Stocks")
-                for stock, score in recommendation["scores"].items():
-                    risk_label = recommendation["risk_levels"].get(stock, "Medium Risk")
-                    st.markdown(f"- **{stock}** (Score: {score:.3f}, {risk_label})")
-                
-                st.markdown("### Suggested Allocation")
-                allocation_text = ", ".join([f"{stock}: {pct}%" for stock, pct in recommendation["allocations"].items()])
-                st.info(f"Allocation: {allocation_text}")
-                
-                if st.button("Apply This Portfolio", key="use_suggested_btn"):
-                    st.rerun()
-        
-        st.markdown("---")
-        st.markdown("### Current Portfolio Selection")
-        for stock in st.session_state.selected_stocks:
-            pct = st.session_state.stock_allocations.get(stock, 0)
-            if pct > 0:
-                st.markdown(f"- {stock}: {pct}%")
-    
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
-    with col_btn1:
-        if st.session_state.get("is_existing_investor",False):
-            if st.button("← Back to Portfolio Review", key="back_to_portfolio_from_goal"):
-                st.session_state.step = 5
-                st.rerun()
-        else:
-            if st.button("← Back to Stock Selection", key="back_to_stocks_btn"):
-                st.session_state.step = 2
-                st.rerun()
-    with col_btn2:
-        if st.button("Reset to Welcome", key="reset_to_welcome"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-    with col_btn3:
-        if st.button("Calculate My Plan", key="calculate_btn_fixed"):
-            st.session_state.risk_profile = risk_profile
-            st.session_state.crisis_weight = crisis_weight
-            st.session_state.step = 4
-            st.rerun()
-
-# ============================================
-# STEP 4: RESULT
-# ============================================
-elif st.session_state.step == 4:
-    st.markdown(f"### Your Financial Plan, {st.session_state.user_name}")
-    
-    if st.session_state.get("is_existing_investor", False):
-        selected_stocks = st.session_state.get("existing_portfolio_stocks", [])
-        weights = [1/len(selected_stocks)] * len(selected_stocks) if selected_stocks else []
-    else:
-        selected_stocks = [s for s in st.session_state.selected_stocks 
-                          if st.session_state.stock_allocations.get(s, 0) > 0]
-        weights = [st.session_state.stock_allocations.get(s, 0) / 100 for s in selected_stocks]
-    
-    if not selected_stocks:
-        st.error("No stocks selected in your portfolio. Please go back and selected at least one stock.")
-        if st.button("← Back to Stock Selection"):
-            st.session_state.step = 2
-            st.rerun()
-        st.stop()
-
-    proxy_stock = selected_stocks[0]
-    
-    df_proxy = all_stocks_data[proxy_stock].copy()
-    returns, weights_bs = prepare_bootstrap_data(df_proxy, st.session_state.crisis_weight)
-    bootstrap = BootstrapSimulator(returns=returns, weights=weights_bs)
-    
-    risk_return = {"Conservative": 0.08, "Moderate": 0.10, "Aggressive": 0.12}
-    expected_return = risk_return.get(st.session_state.risk_profile, 0.10)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("### Your Input Summary")
-        st.markdown(f"- **Financial Goal:** {st.session_state.goal}")
-        st.markdown(f"- **Target Amount:** Rp {st.session_state.target_amount:,.0f}")
-        st.markdown(f"- **Investment Period:** {st.session_state.years} years")
-        st.markdown(f"- **Monthly Contribution:** Rp {st.session_state.monthly_saving:,.0f}")
-        st.markdown(f"- **Risk Profile:** {st.session_state.risk_profile}")
-        st.markdown(f"- **Crisis Scenario:** {'Included' if st.session_state.crisis_weight else 'Excluded'}")
-        
-        st.markdown("### Your Portfolio Composition")
-        for stock, pct in zip(selected_stocks, weights):
-            if pct > 0:
-                st.markdown(f"- {stock}: {pct*100:.0f}%")
-    
-    with col2:
-        months = st.session_state.years * 12
-        monthly_rate = expected_return / 12
-        if monthly_rate > 0:
-            required_saving = st.session_state.target_amount * monthly_rate / ((1 + monthly_rate) ** months - 1)
-        else:
-            required_saving = st.session_state.target_amount / months
-        
-        initial_investment = st.session_state.monthly_saving * months
-        bootstrap_result = bootstrap.simulate_with_target(
-            initial_investment, st.session_state.target_amount, st.session_state.years
-        )
-        
-        st.markdown("### Quantitative Outlook")
-        
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            st.metric("Required Monthly", f"Rp {required_saving:,.0f}")
-        with col_m2:
-            st.metric("Success Probability", f"{bootstrap_result.probability_success:.1f}%")
-        
-        st.progress(bootstrap_result.probability_success / 100)
-        
-        if st.session_state.monthly_saving >= required_saving:
-            st.success(f"Your monthly contribution of Rp {st.session_state.monthly_saving:,.0f} is adequate.")
-            surplus = st.session_state.monthly_saving - required_saving
-            if surplus > 0:
-                st.markdown(f"Monthly surplus: Rp {surplus:,.0f}")
-        else:
-            shortfall = required_saving - st.session_state.monthly_saving
-            st.error(f"Shortfall: Rp {shortfall:,.0f}/month")
-            st.markdown("**Recommended Adjustments:**")
-            st.markdown(f"1. Increase to Rp {required_saving:,.0f}/month")
-            st.markdown(f"2. Extend horizon by 1-2 years")
-            st.markdown(f"3. Consider more aggressive risk profile")
-        
-        st.markdown("### Risk Assessment")
-        
-        goal_type = st.session_state.goal
-        time_horizon = st.session_state.years
-        prob = bootstrap_result.probability_success
-        monthly_contrib = st.session_state.monthly_saving
-        required = required_saving
-        target = st.session_state.target_amount
-        
-        if st.session_state.risk_profile == "Conservative":
-            max_drawdown = 15
-            risk_desc = "low volatility, prioritizing capital preservation over high returns"
-            suitable_horizon = "1-3 years"
-        elif st.session_state.risk_profile == "Moderate":
-            max_drawdown = 25
-            risk_desc = "balanced between growth and stability, accepting moderate fluctuations"
-            suitable_horizon = "3-7 years"
-        else:
-            max_drawdown = 35
-            risk_desc = "high growth potential with elevated volatility, suitable for long-term horizons"
-            suitable_horizon = "7+ years"
-        
-        st.markdown(f"""
-        **Portfolio Risk Profile: {st.session_state.risk_profile}**
-        
-        Your selected {st.session_state.risk_profile.lower()} profile means your portfolio is designed with {risk_desc}. 
-        Based on LQ45 historical data from July 2019 to February 2025, which includes the COVID-19 crisis where the index dropped approximately 35% from peak to trough, here is how your plan measures up:
-        
-        | Risk Metric | Your Exposure | Market Context |
-        |-------------|---------------|----------------|
-        | Expected annual return | {expected_return*100:.0f}% | Based on historical average returns for {st.session_state.risk_profile.lower()} portfolios |
-        | Historical maximum drawdown | -{max_drawdown}% | During severe downturns like COVID-19 (March 2020) |
-        | Typical recovery period | 6 to 12 months | Based on post-crisis recovery patterns in LQ45 |
-        | Volatility expectation | {'Low (5-15% annual)' if max_drawdown <= 15 else 'Moderate (15-25% annual)' if max_drawdown <= 25 else 'High (25-40% annual)'} | Daily price fluctuation expectation |
-        
-        **Time Horizon Alignment Analysis**
-        
-        Your investment horizon is {time_horizon:.0f} years. This is {'well-aligned with' if (st.session_state.risk_profile == 'Conservative' and time_horizon <= 3) or (st.session_state.risk_profile == 'Moderate' and 3 <= time_horizon <= 7) or (st.session_state.risk_profile == 'Aggressive' and time_horizon >= 7) else 'longer than typically recommended for' if time_horizon > 7 else 'shorter than typically recommended for'} a {st.session_state.risk_profile.lower()} profile.
-        
-        {'For a {:.0f}-year horizon, a {:.0f}% allocation to equities is reasonable, but you may want to consider a gradual shift to lower-risk assets as your target date approaches.'.format(time_horizon, 60 if max_drawdown <= 15 else 70 if max_drawdown <= 25 else 85) if time_horizon > 3 else 'For short-term horizons under 3 years, capital preservation should be your priority. Consider keeping 30-50% of your portfolio in cash equivalents 12-18 months before your target date.'}
-        """)
-        
-        # Goal-specific advisory (PANJANG)
-        st.markdown("#### Goal-Specific Advisory")
-        
-        if "Wedding" in goal_type:
-            if prob >= 80:
-                st.markdown(f"""
-                **Wedding Fund Assessment: High Confidence**
-                
-                Your plan shows a {prob:.0f}% probability of reaching Rp {target:,.0f} within {time_horizon:.0f} years. This is considered a well-structured plan.
-                
-                **Why this works:** Your monthly contribution of Rp {monthly_contrib:,.0f} is {monthly_contrib - required:,.0f} above the required amount of Rp {required:,.0f}. This surplus, combined with the expected {expected_return*100:.0f}% annual return from your selected portfolio, puts you ahead of schedule.
-                
-                **What to watch:** Despite the healthy probability, market downturns can temporarily reduce your portfolio value. The COVID-19 crisis in March 2020 caused a 35% drawdown in LQ45, which would have reduced your portfolio value by approximately Rp {initial_investment * 0.35:,.0f} at the lowest point. However, the market fully recovered within 6-12 months.
-                
-                **Recommendation:** Six months before your wedding date, consider moving 3-6 months of wedding expenses (approximately Rp {target * 0.25:,.0f} to Rp {target * 0.5:,.0f}) to cash equivalents or money market instruments. This protects your essential wedding budget from last-minute market volatility.
-                """)
-            elif prob >= 60:
-                st.markdown(f"""
-                **Wedding Fund Assessment: Moderate Confidence**
-                
-                Your plan has a {prob:.0f}% probability of success. While more than half of historical scenarios succeeded, approximately {100-prob:.0f}% of scenarios fell short of your target.
-                
-                **Why the gap exists:** Your current monthly contribution of Rp {monthly_contrib:,.0f} is below the required Rp {required:,.0f}. This monthly shortfall of Rp {required - monthly_contrib:,.0f} compounds to approximately Rp {(required - monthly_contrib) * months:,.0f} over {time_horizon:.0f} years before accounting for investment returns.
-                
-                **What this means for you:** In 4 out of 10 historical market scenarios, you would need to either:
-                - Delay your wedding by 6-12 months
-                - Reduce your wedding budget by approximately {int((1 - monthly_contrib/required) * 100)}%
-                - Or supplement your savings with additional income
-                
-                **Recommended Actions (prioritized):**
-                1. Increase monthly contribution by Rp {required - monthly_contrib:,.0f} (that is {int((required/monthly_contrib - 1)*100)}% more)
-                2. Extend your wedding timeline by 6-12 months, which would reduce required monthly saving to approximately Rp {required * (time_horizon/(time_horizon+1)):.0f}
-                3. Consider a slightly more aggressive risk profile to target higher returns (note: this increases potential drawdown risk)
-                4. Reduce your wedding budget by {int((1 - monthly_contrib/required) * 100)}% to Rp {target * (monthly_contrib/required):,.0f}
-                """)
-            else:
-                st.markdown(f"""
-                **Wedding Fund Assessment: Needs Immediate Attention**
-                
-                Your plan has a {prob:.0f}% probability of success, meaning in more than half of historical market scenarios, you would not reach your target. This requires action before you commit to wedding vendors.
-                
-                **Primary issue:** The gap between your monthly saving (Rp {monthly_contrib:,.0f}) and the required amount (Rp {required:,.0f}) is substantial. This {required - monthly_contrib:,.0f} monthly shortfall represents a {int((required/monthly_contrib - 1)*100)}% increase needed.
-                
-                **Impact analysis:** At your current saving rate, you would accumulate Rp {monthly_contrib * months:,.0f} over {time_horizon:.0f} years. With expected returns, this would grow to approximately Rp {monthly_contrib * months * (1 + expected_return/2):,.0f}, leaving a gap of Rp {target - monthly_contrib * months * (1 + expected_return/2):,.0f}.
-                
-                **Action Items (must implement at least two):**
-                1. **Increase monthly contribution** to Rp {required:,.0f} (requires additional Rp {required - monthly_contrib:,.0f}/month)
-                2. **Extend wedding timeline** by 1-2 years, which would reduce required monthly saving to approximately Rp {required * (time_horizon/(time_horizon+2)):.0f}
-                3. **Consider a more aggressive risk profile** to target {expected_return*100 + 4:.0f}% annual return (current: {expected_return*100:.0f}%)
-                4. **Reduce wedding budget** to Rp {int(target * 0.8):,.0f} while keeping current savings rate
-                
-                **Important:** Do not proceed with current numbers. Adjust your plan using the recommendations above before committing to wedding vendors.
-                """)
-        
-        elif "KPR" in goal_type:
-            st.markdown(f"""
-            **KPR Down Payment Assessment**
-            
-            Your plan targets a down payment of {target/1000000:.0f} million Rupiah within {time_horizon:.0f} years. Based on {prob:.0f}% historical probability, here is your position:
-            
-            **Hidden Costs Reminder (Often Overlooked)**
-            
-            When budgeting for a house, remember that total funds needed include not just the DP but also:
-            - BPHTB (5% of property value): Approximately Rp {target * 0.25:,.0f} (assuming 20% DP)
-            - Notary fees (1%): Approximately Rp {target * 0.05:,.0f}
-            - Bank provisions (0.5-1%): Additional Rp {target * 0.025:,.0f} to Rp {target * 0.05:,.0f}
-            
-            **Dividend Synergy Opportunity**
-            
-            Bank stocks (BBCA, BBRI, BMRI) in your portfolio typically yield 3-4% annually. At your current investment level of approximately Rp {monthly_contrib * 12 * time_horizon:,.0f} total contributions, dividends could generate an additional Rp {monthly_contrib * 12 * time_horizon * 0.035:,.0f} over {time_horizon:.0f} years. This effectively reduces your required monthly saving by approximately Rp {monthly_contrib * 12 * time_horizon * 0.035 / (time_horizon * 12):,.0f} per month.
-            
-            **Probability Outlook:** {'Your plan is on solid ground. Maintain your current discipline and review semi-annually.' if prob >= 70 else 'Your plan needs strengthening. Focus on the recommended adjustments above before proceeding with property search.'}
-            """)
-        
-        else:  # Education
-            st.markdown(f"""
-            **Education Fund Assessment (10-18 year horizon)**
-            
-            Your plan targets university funding of Rp {target/1000000:.0f} million (4-year total) for enrollment in {time_horizon:.0f} years. This long horizon is your greatest asset.
-            
-            **Why Education Funds Differ from Other Goals**
-            
-            Education planning requires special consideration of inflation, which averages 8-12% annually for university costs in Indonesia. The {time_horizon:.0f}-year horizon means that what costs Rp {target/4:,.0f} per year today could cost Rp {target/4 * (1.1**time_horizon):,.0f} per year by the time your child enrolls.
-            
-            **Historical Perspective** 
-            
-            Long-term investments (10+ years) have historically recovered from all major downturns, including:
-            - 2008 Global Financial Crisis: Recovery within 2-3 years
-            - 2020 COVID-19 Crisis: Recovery within 6-12 months
-            - 2022 Inflation Correction: Recovery within 1 year
-            
-            **Consumer Stocks as Inflation Hedge**
-            
-            Your portfolio includes consumer stocks (ICBP, INDF, UNVR). These companies can pass inflation to consumers through price increases, historically preserving purchasing power during periods of high inflation (8-12% annually for education costs).
-            
-            **Probability Analysis:** With {prob:.0f}% success probability, your plan is {'well-positioned' if prob >= 70 else 'needing adjustment'}. 
-            
-            **What to expect:** Even with {prob:.0f}% probability, the long horizon means you have flexibility. If markets underperform in early years, you can:
-            - Increase contributions gradually as your income grows over {time_horizon:.0f} years
-            - Extend the horizon slightly (education timing is flexible by 1-2 years)
-            - Rebalance toward slightly higher growth 5-7 years before college
-            - Leverage compound growth: Your monthly contributions of Rp {monthly_contrib:,.0f} will grow significantly over {time_horizon:.0f} years.
-            """)
-        
-        # Probability Interpretation (PANJANG)
-        st.markdown("#### Understanding Your Probability of Success")
-        
-        if prob >= 80:
-            st.success(f"""
-            **{prob:.0f}% - High Confidence**
-            
-            This percentage comes from analyzing 10,000 historical scenarios spanning July 2019 to February 2025, including the COVID-19 crash and subsequent recovery.
-            
-            **What this means for you:** Your plan succeeded in {int(prob/10)} out of 10 historical market scenarios. The scenarios that failed typically involved severe market downturns occurring within 12 months of your target date.
-            
-            **Confidence level:** You can proceed with confidence. Your monthly contribution adequately funds your goal, and your risk profile matches your time horizon.
-            
-            **Recommendation:** Continue your current plan, review annually, and consider investing any surplus for additional buffer. Six months before your target date, begin shifting to lower-risk assets.
-            """)
-        elif prob >= 60:
-            st.info(f"""
-            **{prob:.0f}% - Moderate Confidence**
-            
-            This percentage comes from analyzing 10,000 historical scenarios spanning July 2019 to February 2025.
-            
-            **What this means for you:** Your plan succeeded in approximately {int(prob/10)} out of 10 historical market scenarios. The primary risk factor is the timing of potential market downturns relative to your goal deadline.
-            
-            **Risk factor:** If a market correction similar to COVID-19 occurs within 18 months of your target date, you may need to either delay your goal or accept a smaller outcome (reduced wedding budget, lower down payment, or more affordable university).
-            
-            **Mitigation strategy:** As you approach your target date (12-18 months out), systematically shift 20-30% of your portfolio to lower volatility assets. This "glide path" approach reduces the impact of last-minute market declines.
-            
-            **Next Steps:** Implement at least one of the recommended actions above, then re-run the simulation to see improved probability.
-            """)
-        else:
-            st.warning(f"""
-            **{prob:.0f}% - Low Confidence (Requires Action)**
-            
-            This percentage comes from analyzing 10,000 historical scenarios spanning July 2019 to February 2025, including the COVID-19 crisis.
-            
-            **What this means for you:** In more than half of historical market scenarios, your current plan would not reach your target. This does not mean failure is guaranteed, but it does mean your plan needs adjustment.
-            
-            **Primary drivers of low probability:**
-            1. Monthly saving rate (Rp {monthly_contrib:,.0f}) is below required (Rp {required:,.0f}) - this is the most significant factor
-            2. Time horizon ({time_horizon:.0f} years) may be too short for your risk profile
-            3. Target amount (Rp {target/1000000:.0f} million) may be ambitious relative to current capacity
-            
-            **Immediate next steps (prioritized):**
-            - **First:** Adjust your monthly contribution. This has the most direct impact on probability.
-            - **Second:** Consider extending your timeline. Adding 1-2 years significantly improves probability.
-            - **Third:** Review your target amount. Is it realistic given your current income and saving capacity?
-            
-            **Do not proceed with current numbers** without implementing at least two of the recommended changes above.
-            """)
-        
-        st.caption("Risk analysis is based on LQ45 historical returns (July 2019 - February 2025). Past performance does not guarantee future results. This analysis is for informational purposes and does not constitute financial advice. Consider consulting a licensed financial advisor for personalized guidance.")
-
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
-    with col_btn1:
-        if st.session_state.get("is_existing_investor", False):
-            if st.button("← Back to Portfolio Review", key="back_to_portfolio_btn"):
-                st.session_state.step = 5
-                st.rerun()
-        else:
-                if st.button("← Back to Modify Plan", key="back_to_modify_btn"):
-                    st.session_state.step = 3
-                    st.rerun()
-    with col_btn2:
-        if st.button("Save My Plan", key="save_plan_btn"):
-            # Create plan summary
-            import json
-            from datetime import datetime
-            
-            plan_summary = {
-                "saved_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "user_name": st.session_state.user_name,
-                "user_age": st.session_state.user_age,
-                "goal": st.session_state.goal,
-                "target_amount": st.session_state.target_amount,
-                "years": st.session_state.years,
-                "monthly_saving": st.session_state.monthly_saving,
-                "risk_profile": st.session_state.risk_profile,
-                "crisis_weight": st.session_state.crisis_weight,
-                "selected_stocks": st.session_state.selected_stocks,
-                "stock_allocations": st.session_state.stock_allocations,
-                "success_probability": bootstrap_result.probability_success,
-                "required_monthly": required_saving
-            }
-            
-            # Save as JSON
-            with open(f"plan_{st.session_state.user_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", "w") as f:
-                json.dump(plan_summary, f, indent=4, default=str)
-            
-            st.success(f"Plan saved! File: plan_{st.session_state.user_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
-            st.balloons()
-    with col_btn3:
-        if st.button("Start Over", key="start_over_btn"):
-            # Reset all session state
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-# ============================================
-# STEP 5: PORTFOLIO MANAGEMENT (for existing investors)
-# ============================================
-elif st.session_state.step == 5:
-    st.markdown(f"### Portfolio Review, {st.session_state.user_name}")
-    
-    if "user_positions" not in st.session_state:
-        st.session_state.user_positions = []
-    
-    portfolio_manager = PortfolioManager(all_stocks_data, st.session_state.user_positions)
-    
-    with st.expander("About LQ45 Index", expanded=False):
-        st.markdown(LQ45_OVERVIEW)
-    
-    st.markdown("### Your Current Stock Positions")
-    st.markdown("Enter the stocks you currently own. This information will be used to calculate unrealized gains.")
-    
-    with st.form(key="add_position_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            stock = st.selectbox("Stock Ticker", emiten_clean, key="shift_stock")
-            purchase_date = st.date_input("Purchase Date", value=date(2022, 1, 1), key="shift_date")
-        with col2:
-            purchase_price = st.number_input("Purchase Price (Rp)", min_value=0, value=0, step=500, key="shift_price")
-            lot_size = st.number_input("Lot Size (1 lot = 100 shares)", min_value=1, value=1, step=1, key="shift_lot")
-        
-        st.caption("If purchase price is 0, the system will auto-fill from historical data.")
-        
-        submitted = st.form_submit_button("Add Position")
-        if submitted:
-            if purchase_price == 0:
-                historical_price = portfolio_manager.get_price_on_date(stock, purchase_date)
-                if historical_price:
-                    purchase_price = historical_price
-                    st.info(f"Auto-filled price: Rp {historical_price:,.0f}")
-                else:
-                    st.error(f"Could not find price for {stock} on {purchase_date}")
-                    st.stop()
-            
-            success = portfolio_manager.add_position(stock, purchase_date, purchase_price, lot_size)
-            if success:
-                st.success(f"Added {stock}: {lot_size} lot(s)")
-                st.rerun()
-            else:
-                st.error(f"Could not add {stock}.")
-    
-    if len(portfolio_manager.user_positions) > 0:
-        df, total_cost, total_current = portfolio_manager.get_unrealized_gain_loss()
-        
-        st.markdown("### Current Portfolio Summary")
-        st.dataframe(df[['Stock', 'Purchase Date', 'Purchase Price', 'Current Price', 'Lot Size', 'Return %']])
-        
-        st.markdown(f"**Total Invested:** Rp {total_cost:,.0f}")
-        st.markdown(f"**Current Value:** Rp {total_current:,.0f}")
-        st.markdown(f"**Unrealized Return:** {((total_current - total_cost) / total_cost * 100):.1f}%")
-        
-        st.session_state.existing_portfolio_stocks = df['Stock'].tolist()
-        st.session_state.is_existing_investor = True
-        st.session_state.user_portfolio_value = total_current
-        st.session_state.user_portfolio_cost = total_cost
-
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.button("Clear All Positions", key="clear_positions_btn"):
-                st.session_state.user_positions = []
-                st.rerun()
-        with col_btn2:
-            if st.button("Calculate My Plan", key="calculate_from_portfolio"):
-                st.session_state.step = 3
-                st.rerun()
-    else:
-        st.info("No positions added yet. Add your stack positions above, or skip to build a new portfolio.")
-
-        col_skip1, col_skip2 = st.columns(2)
-        with col_skip1:
-            if st.button("Skip - Build New Portfolio", key = "skip_positions"):
-                st.session_state.step = 2
-                st.rerun()
-        with col_skip2:
-            if st.button("Back to Welcome", key="back_to_welcom_btn"):
-                st.session_state.step = 1
-                st.rerun()
-
-# ============================================
-# DARK THEME CSS
-# ============================================
-st.markdown("""
+# ============================================================================
+# CSS STYLING - COMPLETE FIX FOR ALL TEXT
+# ============================================================================
+st.markdown(f"""
 <style>
-.stApp { background-color: #0f172a; font-family: 'Inter', sans-serif; }
-.main-header { font-size: 2rem; font-weight: 600; color: #ffffff; margin-bottom: 0.5rem; }
-.sub-header { font-size: 1rem; color: #94a3b8; margin-bottom: 2rem; }
-.stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { color: #ffffff !important; }
-.metric-card { background: #1e293b; border-radius: 14px; padding: 1.2rem; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
-.metric-value { font-size: 1.8rem; font-weight: 700; color: #e67e22; }
-.metric-label { font-size: 0.8rem; color: #94a3b8; }
-.stButton button { background-color: #e67e22; color: white; font-weight: 600; border: none; padding: 0.5rem 2rem; border-radius: 10px; transition: 0.2s; }
-.stButton button:hover { background-color: #d35400; transform: translateY(-1px); }
-div[data-testid="stSelectbox"] label { color: #ffffff !important; font-weight: 600; }
-div[data-baseweb="select"] > div { background-color: #1e293b !important; color: #ffffff !important; border-radius: 10px; border: 1px solid #334155; }
-div[data-baseweb="select"] div[role="button"] { color: #ffffff !important; }
-div[data-baseweb="popover"] { background-color: #1e293b !important; }
-div[data-baseweb="popover"] li { background-color: #1e293b; color: #ffffff !important; }
-div[data-baseweb="popover"] li:hover { background-color: #334155 !important; }
-div[data-testid="stCheckbox"] label { color: #ffffff !important; }
-div[data-testid="stCheckbox"] label span { color: #ffffff !important; }
-div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input { color: #ffffff !important; background-color: #1e293b !important; border: 1px solid #334155 !important; border-radius: 8px; }
-div[data-testid="stSlider"] label { color: #ffffff !important; }
-div[data-testid="stRadio"] label { color: #ffffff !important; }
-.stTabs [data-baseweb="tab-list"] button p { color: #ffffff !important; }
-.stTabs [data-baseweb="tab-highlight"] { background-color: #e67e22; }
-section[data-testid="stSidebar"] { background-color: #0f172a; }
-section[data-testid="stSidebar"] p { color: #ffffff !important; }
-.stProgress > div > div { background-color: #e67e22; }
-.stExpander details summary p { color: #ffffff !important; }
-.stExpander { border: 1px solid #334155 !important; border-radius: 8px !important; }
-.stAlert { background-color: #1e293b !important; }
-.stAlert p { color: #ffffff !important; }
-.stInfo { background-color: #1e3a5f !important; }
-.stInfo p { color: #ffffff !important; }
-div[data-testid="column"] p { color: #ffffff !important; }
+    /* Base container */
+    .stApp {{
+        background-color: {COLORS["background"]};
+    }}
+    
+    /* Force all text to be dark */
+    .stApp, .stMarkdown, .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
+    .stMarkdown h4, .stMarkdown h5, .stMarkdown h6, .stMarkdown li, .stMarkdown ul,
+    .stMarkdown ol, .stMarkdown blockquote, label, .stTextInput label, .stNumberInput label,
+    .stSelectbox label, .stSlider label, .stRadio label, .stCheckbox label,
+    div[data-testid="stMetric"] label, div[data-testid="stMetric"] div,
+    div[data-testid="stMarkdown"] p {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    /* Keep secondary text lighter */
+    .stCaption, caption, .stTextInput input::placeholder,
+    .stNumberInput input::placeholder {{
+        color: {COLORS["text_secondary"]} !important;
+    }}
+    
+    /* Buttons - keep white text on colored background */
+    .stButton button, .stButton button * {{
+        color: white !important;
+    }}
+    .stButton button {{
+        background-color: {COLORS["primary"]} !important;
+        border-radius: 2rem !important;
+        padding: 0.4rem 1.2rem !important;
+        font-weight: 500 !important;
+        border: none !important;
+        transition: all 0.2s ease !important;
+        cursor: pointer !important;
+    }}
+    .stButton button:hover {{
+        background-color: #0d5bb9 !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+    }}
+    
+    /* Input fields */
+    .stTextInput input, .stNumberInput input, 
+    div[data-baseweb="select"] > div,
+    .stDateInput input {{
+        background-color: {COLORS["surface"]} !important;
+        border-radius: 0.5rem !important;
+        border: 1px solid {COLORS["border"]} !important;
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    .stTextInput input:focus, .stNumberInput input:focus {{
+        border-color: {COLORS["primary"]} !important;
+        box-shadow: 0 0 0 2px rgba(26,115,232,0.1) !important;
+        outline: none !important;
+    }}
+    
+    /* Selectbox dropdown */
+    div[data-baseweb="select"] div[role="button"] {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    div[data-baseweb="select"] ul {{
+        background-color: {COLORS["surface"]} !important;
+    }}
+    
+    div[data-baseweb="select"] li {{
+        color: {COLORS["dark"]} !important;
+        background-color: {COLORS["surface"]} !important;
+    }}
+    
+    div[data-baseweb="select"] li:hover {{
+        background-color: #f1f5f9 !important;
+    }}
+    
+    /* Radio buttons */
+    .stRadio div[role="radiogroup"] {{
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }}
+    
+    .stRadio div[role="radiogroup"] label {{
+        background-color: {COLORS["surface"]};
+        border: 1px solid {COLORS["border"]};
+        border-radius: 2rem;
+        padding: 0.4rem 1rem;
+        color: {COLORS["dark"]} !important;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }}
+    
+    .stRadio div[role="radiogroup"] label:hover {{
+        background-color: #f1f5f9;
+        border-color: {COLORS["primary"]};
+    }}
+    
+    .stRadio div[role="radiogroup"] label[data-state="checked"] {{
+        background-color: {COLORS["primary"]};
+        border-color: {COLORS["primary"]};
+    }}
+    
+    .stRadio div[role="radiogroup"] label[data-state="checked"] span {{
+        color: white !important;
+    }}
+    
+    .stRadio div[role="radiogroup"] label span {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    /* Checkbox */
+    .stCheckbox {{
+        margin: 0.25rem 0;
+    }}
+    
+    .stCheckbox label {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    .stCheckbox label span {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    .stCheckbox label div {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    div[data-testid="stCheckbox"] label {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    div[data-testid="stCheckbox"] label span {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    /* Expander */
+    .streamlit-expanderHeader {{
+        background-color: {COLORS["surface"]} !important;
+        color: {COLORS["dark"]} !important;
+        border: 1px solid {COLORS["border"]} !important;
+        border-radius: 0.5rem !important;
+        font-weight: 500 !important;
+    }}
+    
+    .streamlit-expanderHeader p {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    .streamlit-expanderHeader:hover {{
+        background-color: #f1f5f9 !important;
+    }}
+    
+    .streamlit-expanderContent {{
+        background-color: {COLORS["surface"]} !important;
+        padding: 0.5rem 0 !important;
+    }}
+    
+    .streamlit-expanderContent .stCheckbox label {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    .streamlit-expanderContent .stCheckbox label span {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    .streamlit-expanderContent p {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    /* Expander details */
+    details.streamlit-expander {{
+        background-color: {COLORS["surface"]} !important;
+    }}
+    
+    details.streamlit-expander summary {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    details.streamlit-expander div {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    /* Slider */
+    .stSlider .stSlider > div {{
+        color: {COLORS["primary"]} !important;
+    }}
+    
+    .stSlider label {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    /* Metric cards - BLUE BACKGROUND WITH WHITE TEXT */
+    .stat-card {{
+        background-color: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
+        border-radius: 0.75rem;
+        padding: 1rem;
+        text-align: center;
+        border: 1px solid #334155;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }}
+    .stat-value {{
+        font-size: 1.5rem;
+        font-weight: 500;
+        color: black !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }}
+    .stat-label {{
+        font-size: 0.7rem;
+        color: #cbd5e1 !important;
+        text-transform: uppercase;
+        font-weight: 500;
+        letter-spacing: 0.3px;
+    }}
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 1.5rem;
+        border-bottom: 1px solid {COLORS["border"]};
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        font-weight: 500;
+        color: {COLORS["text_secondary"]} !important;
+        padding: 0.5rem 0;
+    }}
+    .stTabs [aria-selected="true"] {{
+        color: {COLORS["primary"]} !important;
+        border-bottom: 2px solid {COLORS["primary"]};
+    }}
+    .stTabs [data-baseweb="tab"] p {{
+        color: inherit !important;
+    }}
+    
+    /* Sidebar */
+    section[data-testid="stSidebar"] {{
+        background-color: {COLORS["surface"]};
+        border-right: 1px solid {COLORS["border"]};
+    }}
+    section[data-testid="stSidebar"] .stMarkdown p,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] div[data-testid="stMetric"] label,
+    section[data-testid="stSidebar"] div[data-testid="stMetric"] div {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    /* Alert boxes */
+    .stAlert {{
+        background-color: {COLORS["surface"]};
+        border-left: 4px solid {COLORS["primary"]};
+        border-radius: 0.5rem;
+    }}
+    .stAlert p {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    .stSuccess {{
+        border-left-color: {COLORS["success"]} !important;
+    }}
+    .stWarning {{
+        border-left-color: {COLORS["warning"]} !important;
+    }}
+    .stError {{
+        border-left-color: {COLORS["danger"]} !important;
+    }}
+    .stInfo {{
+        border-left-color: {COLORS["primary"]} !important;
+    }}
+    
+    
+    /* Dataframe */
+    .stDataFrame {{
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }}
+    .dataframe th {{
+        background-color: #f1f5f9 !important;
+        color: {COLORS["dark"]} !important;
+        font-weight: 600 !important;
+    }}
+    .dataframe td {{
+        color: {COLORS["text"]} !important;
+    }}
+    
+    /* Divider */
+    hr {{
+        border-color: {COLORS["border"]};
+        margin: 1rem 0;
+    }}
+    
+    /* Footer */
+    .footer {{
+        text-align: center;
+        padding: 1.5rem;
+        color: {COLORS["text_secondary"]};
+        font-size: 0.7rem;
+        border-top: 1px solid {COLORS["border"]};
+        margin-top: 2rem;
+    }}
+    
+    /* Main title */
+    .main-title {{
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: {COLORS["dark"]};
+        margin-bottom: 0.25rem;
+        letter-spacing: -0.5px;
+    }}
+    .subtitle {{
+        font-size: 0.85rem;
+        color: {COLORS["text_secondary"]};
+        margin-bottom: 1.5rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid {COLORS["primary"]};
+        display: inline-block;
+    }}
+    
+    /* Number input value */
+    .stNumberInput input {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    /* Selectbox label */
+    .stSelectbox label {{
+        color: {COLORS["dark"]} !important;
+    }}
+    
+    /* Caption */
+    .stCaption {{
+        color: {COLORS["text_secondary"]} !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
+def format_idr(value):
+    """Format number as Indonesian Rupiah with thousands separator"""
+    return f"Rp {value:,.0f}".replace(",", ".")
+
+def format_number(value):
+    return f"{value:,.0f}".replace(",", ".")
+
+def prepare_simulation_data(df, use_crisis_weight):
+    df = df.copy()
+    df = calculate_returns(df)
+    if use_crisis_weight:
+        df = add_crisis_weights(df)
+        df_clean = df.dropna(subset=['daily_return', 'bootstrap_weight'])
+        if len(df_clean) == 0:
+            return None, None
+        returns = df_clean["daily_return"].values
+        weights = df_clean["bootstrap_weight"].values
+        weights = weights / weights.sum() if weights.sum() > 0 else weights
+        return returns, weights
+    returns = df["daily_return"].dropna().values
+    return returns, None
+
+# ============================================================================
+# SESSION STATE
+# ============================================================================
+if "plan_created" not in st.session_state:
+    st.session_state.plan_created = False
+if "user_name" not in st.session_state:
+    st.session_state.user_name = ""
+if "financial_goal" not in st.session_state:
+    st.session_state.financial_goal = "Wedding Fund"
+if "target_nominal" not in st.session_state:
+    st.session_state.target_nominal = 100_000_000
+if "investment_horizon" not in st.session_state:
+    st.session_state.investment_horizon = 2.0
+if "monthly_contribution" not in st.session_state:
+    st.session_state.monthly_contribution = 2_000_000
+if "risk_tolerance" not in st.session_state:
+    st.session_state.risk_tolerance = "Moderate"
+if "crisis_weight_enabled" not in st.session_state:
+    st.session_state.crisis_weight_enabled = True
+if "portfolio_stocks" not in st.session_state:
+    st.session_state.portfolio_stocks = ["BBCA", "BBRI"]
+if "stock_weights" not in st.session_state:
+    st.session_state.stock_weights = {"BBCA": 50, "BBRI": 50}
+if "calculation_complete" not in st.session_state:
+    st.session_state.calculation_complete = False
+
+# ============================================================================
+# SIDEBAR
+# ============================================================================
+with st.sidebar:
+    st.markdown("### Analysis Parameters")
+    st.divider()
+    
+    st.markdown("**Dataset Summary**")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.metric("Stocks", len(EMITEN))
+    with col_b:
+        st.metric("Trading Days", "1,355")
+    
+    col_c, col_d = st.columns(2)
+    with col_c:
+        st.metric("Period", "5.5 years")
+    with col_d:
+        st.metric("Simulations", "10,000")
+    
+    st.divider()
+    
+    st.markdown("**Simulation Settings**")
+    crisis_toggle = st.checkbox("Crisis Weighting (3x COVID Period)", value=st.session_state.crisis_weight_enabled)
+    st.session_state.crisis_weight_enabled = crisis_toggle
+    st.caption("COVID-19 crisis period (March-June 2020) receives 3x sampling weight in simulations")
+    
+    st.divider()
+    
+    st.markdown("**Documentation**")
+    with st.expander("About LQ45 Index"):
+        st.markdown(LQ45_OVERVIEW)
+    
+    st.caption("Data source: Indonesia Stock Exchange (IDX)")
+    st.caption("Data compiled by: wildangunawan/Dataset-Saham-IDX (GitHub)")
+    st.caption("Methodology: Bootstrap Simulation")
+
+# ============================================================================
+# HEADER
+# ============================================================================
+st.markdown('<p class="main-title">LQ45 Financial Planning Engine</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Crisis-Weighted Bootstrap Simulation | 2019-2025</p>', unsafe_allow_html=True)
+
+# ============================================================================
+# MAIN TABS
+# ============================================================================
+tab_planning, tab_explorer, tab_analysis = st.tabs([
+    "Financial Planning",
+    "Stock Data Explorer",
+    "Statistic Analysis"
+])
+
+# ============================================================================
+# TAB 1: FINANCIAL PLANNING
+# ============================================================================
+with tab_planning:
+    st.markdown("### Goal Configuration")
+    
+    input_col, summary_col = st.columns([1, 1])
+    
+    with input_col:
+        st.markdown("#### Personal Information")
+        user_name = st.text_input("Investor Name", value=st.session_state.user_name, placeholder="Enter your name")
+        st.session_state.user_name = user_name
+        
+        st.markdown("#### Financial Goal")
+        goal_selection = st.selectbox(
+            "Select Goal Type",
+            ["Wedding Fund", "KPR Down Payment", "Child Education"],
+            index=["Wedding Fund", "KPR Down Payment", "Child Education"].index(st.session_state.financial_goal)
+        )
+        if goal_selection != st.session_state.financial_goal:
+            st.session_state.toast_shown = False
+        st.session_state.financial_goal = goal_selection
+        
+        target_amount = st.number_input(
+            "Target Amount (Rupiah)",
+            min_value=10_000_000,
+            max_value=5_000_000_000,
+            value=st.session_state.target_nominal,
+            step=50_000_000
+        )
+        if target_amount != st.session_state.target_nominal:
+            st.session_state.toast_shown = False
+        st.session_state.target_nominal = target_amount
+        
+        if goal_selection == "Wedding Fund":
+            horizon = st.slider("Investment Horizon (Years)", 1.0, 50.0, st.session_state.investment_horizon, 0.5,
+            help="Recommended:1-3 years. You can extend for testing scenarios.")
+        elif goal_selection == "KPR Down Payment":
+            horizon = st.slider("Investment Horizon (Years)", 1.0, 50.0, st.session_state.investment_horizon, 0.5,
+            help="Recommended:3-5 years. You can extend for testing scenarios.")
+        else:
+            horizon = st.slider("Investment Horizon (Years)", 1.0, 50.0, st.session_state.investment_horizon, 1.0,
+            help="Recommended:10+ years. You can extend for testing scenarios.")
+        
+        if horizon != st.session_state.investment_horizon:
+            st.session_state.toast_shown = False
+        st.session_state.investment_horizon = horizon
+        
+        monthly_save = st.number_input(
+            "Monthly Saving (Rupiah)",
+            min_value=500_000,
+            max_value=50_000_000,
+            value=st.session_state.monthly_contribution,
+            step=500_000
+        )
+        if monthly_save != st.session_state.monthly_contribution:
+            st.session_state.toast_shown = False
+        st.session_state.monthly_contribution = monthly_save
+        
+        st.markdown("#### Risk Profile")
+        risk_level = st.selectbox(
+            "Select Risk Tolerance",
+            ["Conservative", "Moderate", "Aggressive"],
+            index=["Conservative", "Moderate", "Aggressive"].index(st.session_state.risk_tolerance)
+        )
+        st.session_state.risk_tolerance = risk_level
+        
+        st.markdown("#### Portfolio Construction")
+        
+        # ============================================================
+        # RECOMMENDED PORTFOLIO BASED ON GOAL (FROM LQ45 ANALYSIS)
+        # ============================================================
+        
+        recommended_portfolios = {
+            "Wedding Fund": {
+                "stocks": ["BBCA", "TLKM", "ASII"],
+                "weights": [50, 30, 20],
+                "risk_focus": "Low Risk (<1.5% volatility)",
+                "note": "Capital preservation for 1-3 year horizon"
+            },
+            "KPR Down Payment": {
+                "stocks": ["BBRI", "BMRI", "BBCA"],
+                "weights": [40, 35, 25],
+                "risk_focus": "Medium Risk (1.5-3% volatility)",
+                "note": "Balanced growth with dividend synergy for 3-5 year horizon"
+            },
+            "Child Education": {
+                "stocks": ["ADRO", "ITMG", "BBRI"],
+                "weights": [40, 35, 25],
+                "risk_focus": "High Risk (>3% volatility)",
+                "note": "Maximum growth for 10+ year horizon, higher dividend potential"
+            }
+        }
+        
+        # Get recommendation for current goal
+        current_goal = st.session_state.financial_goal
+        rec = recommended_portfolios.get(current_goal, recommended_portfolios["Wedding Fund"])
+        
+        # Show recommendation with clear instruction
+        st.info(f"💡 **Recommended for {current_goal}:** {rec['note']}")
+        st.caption(f"Risk focus: {rec['risk_focus']}")
+        st.caption(f"Suggested stocks: {', '.join(rec['stocks'])} with weights {rec['weights']}")
+        
+        # Apply button
+        if st.button("Apply This Recommendation", key="apply_rec_btn"):
+            st.session_state.portfolio_stocks = rec["stocks"].copy()
+            st.session_state.stock_weights = {}
+            for stock, weight in zip(rec["stocks"], rec["weights"]):
+                st.session_state.stock_weights[stock] = weight
+            st.session_state.calculation_complete = True
+            st.success(f"Recommended portfolio applied! You can still adjust below.")
+            st.rerun()
+        
+        st.markdown("---")
+        st.caption("Or select your own stocks below:")
+        
+        # Continue with existing stock selection
+        sector_groups = {}
+        for stock in EMITEN:
+            sector = SECTOR_MAP.get(stock, "Other")
+            sector_groups.setdefault(sector, []).append(stock)
+        
+        portfolio_stocks = []
+        for sector, stocks in sorted(sector_groups.items()):
+            with st.expander(f"{sector} ({len(stocks)})"):
+                for stock in stocks:
+                    is_selected = stock in st.session_state.portfolio_stocks
+                    if st.checkbox(stock, value=is_selected, key=f"port_{stock}"):
+                        portfolio_stocks.append(stock)
+        
+        st.session_state.portfolio_stocks = list(set(portfolio_stocks))
+        
+        if st.session_state.portfolio_stocks:
+            st.markdown("**Allocation Percentage**")
+            total_weight = 0
+            default_weight = 100 // len(st.session_state.portfolio_stocks) if st.session_state.portfolio_stocks else 0
+            for stock in st.session_state.portfolio_stocks:
+                current = st.session_state.stock_weights.get(stock, default_weight)
+                weight = st.slider(stock, 0, 100, current, 5, key=f"weight_{stock}")
+                st.session_state.stock_weights[stock] = weight
+                total_weight += weight
+            st.progress(min(total_weight / 100, 1.0), text=f"Total: {total_weight}%")
+            
+            if total_weight != 100:
+                st.warning("Total allocation must equal 100 percent")
+            else:
+                st.success("Portfolio balanced")
+    
+    with summary_col:
+        st.markdown("#### Plan Summary")
+        
+        if st.session_state.user_name:
+            st.write(f"**Investor:** {st.session_state.user_name}")
+        st.write(f"**Goal:** {st.session_state.financial_goal}")
+        st.write(f"**Target:** {format_idr(st.session_state.target_nominal)}")
+        st.write(f"**Horizon:** {st.session_state.investment_horizon:.0f} years")
+        st.write(f"**Monthly:** {format_idr(st.session_state.monthly_contribution)}")
+        st.write(f"**Risk Profile:** {st.session_state.risk_tolerance}")
+        
+        st.markdown("---")
+        st.markdown("**Portfolio Allocation**")
+        has_allocation = False
+        for stock, weight in st.session_state.stock_weights.items():
+            if weight > 0 and stock in st.session_state.portfolio_stocks:
+                st.write(f"- {stock}: {weight}%")
+                has_allocation = True
+        if not has_allocation:
+            st.write("(No stocks selected)")
+        
+        st.markdown("---")
+        
+        total_weight = sum(st.session_state.stock_weights.values())
+        ready_to_calculate = (
+            st.session_state.user_name and
+            st.session_state.portfolio_stocks and
+            total_weight == 100
+        )
+        
+        if ready_to_calculate:
+            if st.button("Calculate Plan", use_container_width=True):
+                st.session_state.toast_shown = False
+                st.session_state.calculation_complete = True
+                st.rerun()
+    
+    if st.session_state.calculation_complete:
+        if "toast_shown" not in st.session_state:
+            st.toast("Calculation Complete! Your financial plan is ready.", icon="🎯")
+            st.session_state.toast_shown = True
+        st.divider()
+        st.markdown("### Calculation Results")
+        
+        # ============================================================
+        # NOTIFICATION BOX
+        # ============================================================
+        st.success("**Calculation Complete!** Your financial plan has been generated below.")
+        st.info("**What you can do next:**")
+        st.markdown("""
+        - Adjust your monthly saving or horizon using the controls above
+        - Modify your portfolio allocation in the Portfolio Construction section
+        - Click **Calculate Plan** again to regenerate your projection
+        - Review your success probability and dividend analysis below
+        """)
+
+        active_stocks = [s for s in st.session_state.portfolio_stocks if st.session_state.stock_weights.get(s, 0) > 0]
+        
+        if not active_stocks:
+            st.error("No stocks selected for simulation")
+        else:
+            proxy_stock = active_stocks[0]
+            source_data = STOCK_DATA[proxy_stock].copy()
+            
+            returns_data, sampling_weights = prepare_simulation_data(source_data, st.session_state.crisis_weight_enabled)
+            
+            if returns_data is not None and len(returns_data) > 0:
+                simulator = BootstrapSimulator(returns=returns_data, weights=sampling_weights)
+                
+                expected_return_map = {"Conservative": 0.08, "Moderate": 0.10, "Aggressive": 0.12}
+                annual_return = expected_return_map.get(st.session_state.risk_tolerance, 0.10)
+                
+                total_months = st.session_state.investment_horizon * 12
+                
+                # Handle zero months
+                if total_months <= 0:
+                    total_months = 12
+                
+                monthly_rate = annual_return / 12
+                
+                # Calculate required monthly saving
+                if monthly_rate > 0 and total_months > 0:
+                    try:
+                        # Future value of annuity formula
+                        required_monthly = st.session_state.target_nominal * monthly_rate / ((1 + monthly_rate) ** total_months - 1)
+                        
+                        # Jika required_monthly lebih kecil dari 1 rupiah atau lebih besar dari target, gunakan simple division
+                        if required_monthly < 1 or required_monthly > st.session_state.target_nominal:
+                            required_monthly = st.session_state.target_nominal / total_months
+                    except (OverflowError, ZeroDivisionError):
+                        required_monthly = st.session_state.target_nominal / total_months
+                else:
+                    required_monthly = st.session_state.target_nominal / total_months
+                
+                # Final validation
+                if np.isnan(required_monthly) or np.isinf(required_monthly) or required_monthly <= 0:
+                    required_monthly = st.session_state.target_nominal / total_months
+                
+                # Batasi required_monthly tidak lebih dari target
+                if required_monthly > st.session_state.target_nominal:
+                    required_monthly = st.session_state.target_nominal / total_months
+                
+                # Ensure required_monthly is finite
+                if np.isnan(required_monthly) or np.isinf(required_monthly) or required_monthly <= 0:
+                    required_monthly = st.session_state.target_nominal / total_months
+                
+                total_contributions = st.session_state.monthly_contribution * total_months
+                
+                try:
+                    simulation_result = simulator.simulate_with_target(
+                        total_contributions,
+                        st.session_state.target_nominal,
+                        st.session_state.investment_horizon
+                    )
+                    success_rate = simulation_result.probability_success
+                    final_values = simulation_result.final_values
+                    median_value = np.percentile(final_values, 50)
+                    var_estimate = np.percentile(final_values, 5)
+                    upper_estimate = np.percentile(final_values, 95)
+                except Exception as sim_error:
+                    success_rate = 50.0
+                    median_value = total_contributions * (1 + annual_return) ** st.session_state.investment_horizon
+                    var_estimate = median_value * 0.7
+                    upper_estimate = median_value * 1.5
+                
+                result_col1, result_col2, result_col3, result_col4 = st.columns(4)
+                
+                with result_col1:
+                    st.markdown(f"""
+                    <div class="stat-card">
+                        <div class="stat-value">{success_rate:.0f}%</div>
+                        <div class="stat-label">Success Rate</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with result_col2:
+                    st.markdown(f"""
+                    <div class="stat-card">
+                        <div class="stat-value">{format_idr(median_value)}</div>
+                        <div class="stat-label">Median Outcome</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with result_col3:
+                    st.markdown(f"""
+                    <div class="stat-card">
+                        <div class="stat-value">{format_idr(var_estimate)}</div>
+                        <div class="stat-label">VaR 95% (Worst Case)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with result_col4:
+                    st.markdown(f"""
+                    <div class="stat-card">
+                        <div class="stat-value">{format_idr(upper_estimate)}</div>
+                        <div class="stat-label">Optimistic (95th Percentile)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown("#### Savings & Monthly Analysis")
+                
+                col_s1, col_s2, col_s3 = st.columns(3)
+                
+                with col_s1:
+                    st.metric("Investment Horizon", f"{st.session_state.investment_horizon:.1f} years")
+                    st.metric("Target Amount", format_idr(st.session_state.target_nominal))
+                    st.metric("Total Contributions", format_idr(total_contributions))
+                
+                with col_s2:
+                    st.metric("Your Monthly Saving", format_idr(st.session_state.monthly_contribution))
+                    st.metric("Required Monthly", format_idr(required_monthly))
+                    
+                    diff = st.session_state.monthly_contribution - required_monthly
+                    if diff >= 0:
+                        st.success(f"Surplus: +{format_idr(diff)}/month")
+                        progress_val = min(1.0, st.session_state.monthly_contribution / required_monthly if required_monthly > 0 else 1.0)
+                        st.progress(progress_val)
+                    else:
+                        st.error(f"Shortfall: {format_idr(abs(diff))}/month")
+                        pct = (st.session_state.monthly_contribution / required_monthly) * 100 if required_monthly > 0 else 0
+                        st.caption(f"at {pct:.0f}% of required")
+                        progress_val = min(1.0, st.session_state.monthly_contribution / required_monthly if required_monthly > 0 else 1.0)
+                        st.progress(progress_val)
+                
+                with col_s3:
+                    gap = st.session_state.target_nominal - total_contributions
+                    if gap > 0:
+                        st.metric("Return Needed", format_idr(gap))
+                    else:
+                        st.metric("Status", "Target Achieved", delta="by contributions alone")
+                    
+                    # Simple projection
+                    projected = total_contributions * (1 + annual_return) ** st.session_state.investment_horizon
+                    st.caption(f"Projected (no dividend): {format_idr(projected)}")
+
+                # SIMPLIFIED CALCULATION 
+                st.markdown("#### Dividend Impact Analysis")
+                
+                # Average dividend yield from portfolio
+                dividend_yield_map = {
+                    "BBCA": 0.032, "BBRI": 0.0497, "BMRI": 0.045, "TLKM": 0.038,
+                    "ASII": 0.035, "ADRO": 0.065, "ITMG": 0.095, "PTBA": 0.075
+                }
+                
+                total_dividend_yield = 0
+                for stock, weight in st.session_state.stock_weights.items():
+                    if weight > 0 and stock in dividend_yield_map:
+                        total_dividend_yield += dividend_yield_map.get(stock, 0.04) * (weight / 100)
+                
+                years = st.session_state.investment_horizon
+                
+                # Simple future value with and without dividends
+                # Without dividends: only price appreciation
+                future_without_div = total_contributions * (1 + annual_return) ** years
+                
+                # With dividends: add annual dividend income (not reinvested to avoid compounding errors)
+                annual_dividend_income = total_contributions * total_dividend_yield
+                future_with_div = future_without_div + (annual_dividend_income * years)
+                
+                # Ensure numbers are reasonable
+                future_without_div = min(future_without_div, st.session_state.target_nominal * 3)
+                future_with_div = min(future_with_div, st.session_state.target_nominal * 3)
+                
+                col_div1, col_div2, col_div3 = st.columns(3)
+                
+                with col_div1:
+                    pct_target = (future_without_div / st.session_state.target_nominal) * 100
+                    st.metric(
+                        "Price Appreciation Only", 
+                        format_idr(future_without_div),
+                        delta=f"{pct_target:.0f}% of target"
+                    )
+                
+                with col_div2:
+                    pct_target_div = (future_with_div / st.session_state.target_nominal) * 100
+                    st.metric(
+                        "Price With Dividends",
+                        format_idr(future_with_div),
+                        delta=f"{pct_target_div:.0f}% of target"
+                    )
+                
+                with col_div3:
+                    st.metric(
+                        "Dividend Yield",
+                        f"{total_dividend_yield * 100:.2f}%",
+                        delta=f"~{format_idr(annual_dividend_income)}/year"
+                    )
+                
+                # Show which scenario meets target
+                if future_without_div >= st.session_state.target_nominal:
+                    st.success("Without dividends: Your target is achievable")
+                elif future_with_div >= st.session_state.target_nominal:
+                    st.success("With dividends: Your target becomes achievable")
+                else:
+                    needed = st.session_state.target_nominal - future_with_div
+                    st.warning(f"Remaining shortfall: {format_idr(needed)}")
+                
+                # Capital breakdown
+                st.markdown("#### Capital Breakdown")
+                
+                # Calculate future value of monthly contributions (annuity)
+                monthly_rate = annual_return / 12
+                total_months = int(st.session_state.investment_horizon * 12)
+                
+                if monthly_rate > 0:
+                    # Future value of ordinary annuity
+                    fv_annuity = st.session_state.monthly_contribution * ((1 + monthly_rate) ** total_months - 1) / monthly_rate
+                else:
+                    fv_annuity = st.session_state.monthly_contribution * total_months
+                
+                # With dividends (simplified: add average dividend yield to annual return)
+                annual_return_with_div = annual_return + total_dividend_yield
+                monthly_rate_with_div = annual_return_with_div / 12
+                
+                if monthly_rate_with_div > 0:
+                    fv_with_div = st.session_state.monthly_contribution * ((1 + monthly_rate_with_div) ** total_months - 1) / monthly_rate_with_div
+                else:
+                    fv_with_div = fv_annuity
+                
+                # Capital Gains = Growth from price appreciation only
+                capital_gains = fv_annuity - total_contributions
+                
+                # Dividend Income = Extra from dividends
+                dividend_income = fv_with_div - fv_annuity
+                
+                col_cap1, col_cap2, col_cap3 = st.columns(3)
+                
+                with col_cap1:
+                    st.metric("Your Contributions", format_idr(total_contributions))
+                with col_cap2:
+                    st.metric("Capital Gains (Price Appreciation)", format_idr(max(0, capital_gains)))
+                with col_cap3:
+                    st.metric("Dividend Income (Reinvested)", format_idr(max(0, dividend_income)))
+                
+                # Total projected value
+                total_projected = fv_with_div
+                pct_of_target = (total_projected / st.session_state.target_nominal) * 100
+                st.caption(f"**Total Projected Value:** {format_idr(total_projected)} -({pct_of_target:.0f}% of target)")
+                
+                # ============================================================
+                # SHOW DIVIDEND YIELD PER STOCK (TAMBAHKAN DI SINI)
+                # ============================================================
+                
+                # Show dividend yield for selected stocks
+                if st.session_state.portfolio_stocks:
+                    st.markdown("#### Dividend Yield per Stock (Historical Average)")
+                    
+                    # Dividend yield data from Table 3.7
+                    dividend_yield_map = {
+                        "BBCA": 0.032, "BBRI": 0.0497, "BMRI": 0.045, "TLKM": 0.038,
+                        "ASII": 0.035, "ADRO": 0.065, "ITMG": 0.095, "PTBA": 0.075,
+                        "UNVR": 0.035, "INDF": 0.035, "ICBP": 0.025, "GGRM": 0.045,
+                        "CPIN": 0.030, "PGAS": 0.040, "BBNI": 0.045, "MEDC": 0.020,
+                        "AKRA": 0.025, "AMRT": 0.015, "ARTO": 0.000, "BRPT": 0.020,
+                        "EXCL": 0.035, "HRUM": 0.050, "ISAT": 0.045, "JSMR": 0.030,
+                        "KLBF": 0.025, "MAPA": 0.020, "MAPI": 0.015, "MDKA": 0.010,
+                        "SIDO": 0.040, "SMGR": 0.035, "TOWR": 0.030, "UNTR": 0.080,
+                        "BTN": 0.025
+                    }   
+                    
+                    div_data = []
+                    for stock in st.session_state.portfolio_stocks:
+                        if stock in dividend_yield_map:
+                            yield_pct = dividend_yield_map[stock]
+                            # Risk tier berdasarkan yield
+                            if yield_pct > 0.07:
+                                risk_tier = "High Risk"
+                            elif yield_pct > 0.04:
+                                risk_tier = "Medium Risk"
+                            else:
+                                risk_tier = "Low Risk"
+                            
+                            div_data.append({
+                                "Stock": stock,
+                                "Dividend Yield": f"{yield_pct*100:.1f}%",
+                                "Risk Tier": risk_tier
+                            })
+                    
+                    if div_data:
+                        st.dataframe(pd.DataFrame(div_data), use_container_width=True)
+                        st.caption("Note: Historical average dividend yield (2019-2024). Past performance does not guarantee future dividends.")
+                
+                st.markdown("#### Success Probability Gauge")
+                
+                gauge_chart = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=success_rate,
+                    title={"text": "Probability of Reaching Target"},
+                    domain={"x": [0, 1], "y": [0, 1]},
+                    gauge={
+                        "axis": {"range": [0, 100]},
+                        "bar": {"color": COLORS["primary"]},
+                        "steps": [
+                            {"range": [0, 33], "color": COLORS["danger"]},
+                            {"range": [33, 66], "color": COLORS["warning"]},
+                            {"range": [66, 100], "color": COLORS["success"]}
+                        ],
+                        "threshold": {"value": 70, "line": {"color": COLORS["dark"], "width": 2}}
+                    }
+                ))
+                gauge_chart.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
+                st.plotly_chart(gauge_chart, use_container_width=True)
+                
+                st.markdown("#### Recommendation")
+                
+            if success_rate >= 80:
+                    st.success("Your plan is well-structured and on track. Maintain consistent monthly contributions and review semi-annually.")
+            elif success_rate >= 60:
+                    st.warning("Your plan would benefit from minor adjustments. Consider increasing monthly contributions or extending your investment horizon.")
+            else:
+                    st.error("Your plan requires significant revision. Consider adjusting your target amount, increasing contributions, or extending your timeline before proceeding.")
+                
+            if st.button("Start Over", use_container_width=True):
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                st.rerun()
+
+# ============================================================================
+# TAB 2: STOCK DATA EXPLORER
+# ============================================================================
+with tab_explorer:
+    st.markdown("### Stock Data Explorer")
+    
+    explorer_col1, explorer_col2 = st.columns([1, 2])
+    
+    with explorer_col1:
+        target_stock = st.selectbox("Select Stock", EMITEN, key="explorer_stock")
+        date_start = st.date_input("Start Date", value=date(2020, 1, 1), key="exp_start")
+        date_end = st.date_input("End Date", value=date(2024, 12, 31), key="exp_end")
+        
+        data_columns = ["open_price", "high", "low", "close", "volume", "value", "foreign_buy", "foreign_sell", "weight_for_index"]
+        selected_columns = st.multiselect("Display Columns", data_columns, default=["open_price", "high", "low", "close"])
+    
+    with explorer_col2:
+        stock_df = STOCK_DATA[target_stock].copy()
+        stock_df = stock_df.reset_index()
+        stock_df.rename(columns={"index": "date"}, inplace=True)
+        stock_df["date"] = pd.to_datetime(stock_df["date"])
+        
+        date_mask = (stock_df["date"] >= pd.to_datetime(date_start)) & (stock_df["date"] <= pd.to_datetime(date_end))
+        filtered_data = stock_df[date_mask]
+        
+        if len(filtered_data) > 0 and selected_columns:
+            display_data = filtered_data[["date"] + selected_columns].tail(20).sort_values("date", ascending=False)
+            
+            for col in selected_columns:
+                if col in ["open_price", "high", "low", "close"]:
+                    display_data[col] = display_data[col].apply(lambda x: format_idr(x))
+                elif col in ["volume", "value", "foreign_buy", "foreign_sell"]:
+                    display_data[col] = display_data[col].apply(lambda x: format_number(x))
+            
+            st.dataframe(display_data, use_container_width=True)
+    
+    st.divider()
+    
+    st.markdown("#### Price Chart")
+    
+    candle_data = STOCK_DATA[target_stock].copy()
+    candle_data = candle_data.reset_index()
+    candle_data.rename(columns={"index": "date"}, inplace=True)
+    candle_data["date"] = pd.to_datetime(candle_data["date"])
+    candle_mask = (candle_data["date"] >= pd.to_datetime(date_start)) & (candle_data["date"] <= pd.to_datetime(date_end))
+    candle_filtered = candle_data[candle_mask]
+    
+    if len(candle_filtered) > 0:
+        candlestick = go.Figure(data=[go.Candlestick(
+            x=candle_filtered["date"],
+            open=candle_filtered["open_price"],
+            high=candle_filtered["high"],
+            low=candle_filtered["low"],
+            close=candle_filtered["close"],
+            name=target_stock,
+            increasing_line_color=COLORS["success"],
+            decreasing_line_color=COLORS["danger"]
+        )])
+        candlestick.update_layout(
+            title=f"{target_stock} - Price History",
+            title_x=0.5,
+            yaxis_title="Price (Rupiah)",
+            height=450
+        )
+        st.plotly_chart(candlestick, use_container_width=True)
+ 
+ # Foreign Flow Analysis (replaces Price Checker)
+    st.markdown("#### Foreign Flow Analysis")
+    
+    if 'foreign_buy' in STOCK_DATA[target_stock].columns:
+        ff_stock = target_stock
+        
+        ff_data = STOCK_DATA[ff_stock].copy()
+        ff_data = ff_data.reset_index()
+        ff_data.rename(columns={"index": "date"}, inplace=True)
+        ff_data["date"] = pd.to_datetime(ff_data["date"])
+        ff_data["net_foreign"] = ff_data["foreign_buy"] - ff_data["foreign_sell"]
+        ff_data["cumulative_foreign"] = ff_data["net_foreign"].cumsum()
+        
+        ff_mask = (ff_data["date"] >= pd.to_datetime(date_start)) & (ff_data["date"] <= pd.to_datetime(date_end))
+        ff_filtered = ff_data[ff_mask]
+        
+        if len(ff_filtered) > 0:
+            fig = go.Figure()
+            
+            colors = [COLORS["success"] if x > 0 else COLORS["danger"] for x in ff_filtered["net_foreign"]]
+            fig.add_trace(go.Bar(
+                x=ff_filtered["date"], 
+                y=ff_filtered["net_foreign"], 
+                name="Net Foreign Flow", 
+                marker_color=colors,
+                opacity=0.7
+            ))
+            
+            fig.add_trace(go.Scatter(
+                x=ff_filtered["date"], 
+                y=ff_filtered["cumulative_foreign"], 
+                name="Cumulative Flow", 
+                line=dict(color=COLORS["primary"], width=2),
+                yaxis="y2"
+            ))
+            
+            fig.update_layout(
+                title=f"{ff_stock} - Foreign Investor Flow",
+                xaxis_title="Date",
+                height=400,
+                yaxis=dict(title="Net Flow (Rp)", side="left"),
+                yaxis2=dict(title="Cumulative (Rp)", overlaying="y", side="right"),
+                template="simple_white"
+            )
+            fig.update_layout(title_x=0.5)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            total_net = ff_filtered["net_foreign"].sum()
+            if total_net > 0:
+                st.success(f"Net foreign inflow: {format_idr(total_net)} over period")
+            else:
+                st.warning(f"Net foreign outflow: {format_idr(abs(total_net))} over period")
+        else:
+            st.info("No foreign flow data available for selected date range")
+    else:
+        st.info("Foreign flow data not available for this stock")
+# ============================================================================
+# TAB 3: Statistic ANALYSIS
+# ============================================================================
+with tab_analysis:
+    st.markdown("### Statistic Analysis")
+    
+    analysis_tabs = st.tabs(["Return Distribution", "Volatility", "Drawdown", "Correlation", "Value at Risk"])
+    
+    with analysis_tabs[0]:
+        selected_stock = st.selectbox("Select Stock", EMITEN, key="return_stock")
+        
+        return_data = STOCK_DATA[selected_stock].copy()
+        return_data = calculate_returns(return_data)
+        daily_returns = return_data["daily_return"].dropna()
+        
+        stat_col1, stat_col2 = st.columns(2)
+        with stat_col1:
+            st.metric("Mean Daily Return", f"{daily_returns.mean():.4f}%")
+            st.metric("Standard Deviation", f"{daily_returns.std():.4f}%")
+        with stat_col2:
+            st.metric("Skewness", f"{daily_returns.skew():.3f}")
+            st.metric("Kurtosis", f"{daily_returns.kurtosis():.3f}")
+        
+        hist_chart = px.histogram(x=daily_returns, nbins=50, title=f"Daily Return Distribution: {selected_stock}",
+                                  color_discrete_sequence=[COLORS["primary"]])
+        hist_chart.update_layout(title_x=0.5, height=500, xaxis_title="Daily Return (%)", yaxis_title="Frequency")
+        st.plotly_chart(hist_chart, use_container_width=True)
+    
+    with analysis_tabs[1]:
+        selected_stock = st.selectbox("Select Stock", EMITEN, key="vol_stock")
+        
+        vol_data = STOCK_DATA[selected_stock].copy()
+        vol_data = calculate_returns(vol_data)
+        vol_data = calculate_volatility(vol_data, window=20)
+        
+        vol_chart = go.Figure()
+        vol_chart.add_trace(go.Scatter(x=vol_data.index, y=vol_data["volatility_20d"],
+                                      mode="lines", name="20-Day Volatility",
+                                      line=dict(color=COLORS["primary"], width=2)))
+        vol_chart.add_hline(y=1.5, line_dash="dash", line_color=COLORS["success"], annotation_text="Low Risk Threshold")
+        vol_chart.add_hline(y=3.0, line_dash="dash", line_color=COLORS["danger"], annotation_text="High Risk Threshold")
+        vol_chart.add_vrect(x0="2020-03-01", x1="2020-06-30", fillcolor=COLORS["danger"], opacity=0.08, layer="below")
+        vol_chart.update_layout(title=f"Rolling Volatility: {selected_stock}", title_x=0.5, height=500)
+        st.plotly_chart(vol_chart, use_container_width=True)
+    
+    with analysis_tabs[2]:
+        selected_stock = st.selectbox("Select Stock", EMITEN, key="dd_stock")
+        
+        dd_data = STOCK_DATA[selected_stock].copy()
+        dd_data = calculate_drawdown(dd_data)
+        
+        dd_chart = go.Figure()
+        dd_chart.add_trace(go.Scatter(x=dd_data.index, y=dd_data["drawdown"], mode="lines",
+                                     name="Drawdown", fill="tozeroy",
+                                     line=dict(color=COLORS["danger"], width=1.5)))
+        dd_chart.add_hline(y=-20, line_dash="dash", line_color=COLORS["warning"], annotation_text="Bear Market Threshold")
+        dd_chart.add_vrect(x0="2020-03-01", x1="2020-06-30", fillcolor=COLORS["danger"], opacity=0.08, layer="below")
+        dd_chart.update_layout(title=f"Drawdown: {selected_stock}", title_x=0.5,
+                              yaxis_title="Drawdown (%)", height=500)
+        st.plotly_chart(dd_chart, use_container_width=True)
+        
+        max_dd = dd_data["drawdown"].min()
+        current_dd = dd_data["drawdown"].iloc[-1]
+        
+        dd_metric_col1, dd_metric_col2 = st.columns(2)
+        with dd_metric_col1:
+            st.metric("Maximum Drawdown", f"{max_dd:.1f}%")
+        with dd_metric_col2:
+            st.metric("Current Drawdown", f"{current_dd:.1f}%")
+    
+    with analysis_tabs[3]:
+        default_correlation_stocks = ["BBCA", "BBRI", "TLKM"]
+        valid_defaults = [s for s in default_correlation_stocks if s in EMITEN]
+        correlation_stocks = st.multiselect("Select Stocks (minimum 2)", EMITEN, default=valid_defaults)
+        
+        if len(correlation_stocks) >= 2:
+            correlation_matrix_data = pd.DataFrame()
+            for stock in correlation_stocks:
+                corr_data = STOCK_DATA[stock].copy()
+                corr_data = calculate_returns(corr_data)
+                correlation_matrix_data[stock] = corr_data["daily_return"]
+            
+            correlation_matrix = correlation_matrix_data.corr()
+            corr_chart = px.imshow(correlation_matrix, text_auto=True, color_continuous_scale="RdBu_r",
+                                   zmin=-1, zmax=1, title="Stock Return Correlation Matrix")
+            corr_chart.update_layout(title_x=0.5, height=600)
+            st.plotly_chart(corr_chart, use_container_width=True)
+        else:
+            st.info("Please select at least 2 stocks to display correlation matrix")
+    
+    with analysis_tabs[4]:
+        selected_stock = st.selectbox("Select Stock", EMITEN, key="var_stock")
+        
+        var_data = STOCK_DATA[selected_stock].copy()
+        var_data = calculate_returns(var_data)
+        daily_returns_var = var_data["daily_return"].dropna()
+        
+        var_95 = daily_returns_var.quantile(0.05)
+        cvar_95 = daily_returns_var[daily_returns_var <= var_95].mean()
+        
+        var_col1, var_col2 = st.columns(2)
+        with var_col1:
+            st.metric("Value at Risk (VaR 95%)", f"{var_95:.2f}%",
+                     help="5 percent probability of losing more than this on any trading day")
+        with var_col2:
+            st.metric("Conditional VaR (CVaR 95%)", f"{cvar_95:.2f}%",
+                     help="Average loss when VaR threshold is exceeded")
+        
+        st.caption(f"VaR to CVaR Gap: {abs(cvar_95 - var_95):.2f} percentage points - indicates tail risk severity")
+        
+        var_chart = go.Figure()
+        var_chart.add_trace(go.Histogram(x=daily_returns_var, nbinsx=50, name="Returns",
+                                        marker_color=COLORS["primary"], opacity=0.7))
+        var_chart.add_vline(x=var_95, line_dash="dash", line_color=COLORS["danger"],
+                           annotation_text=f"VaR 95%: {var_95:.2f}%")
+        var_chart.add_vline(x=cvar_95, line_dash="dash", line_color=COLORS["warning"],
+                           annotation_text=f"CVaR: {cvar_95:.2f}%")
+        var_chart.update_layout(title=f"Return Distribution with Risk Metrics: {selected_stock}",
+                               title_x=0.5, xaxis_title="Daily Return (%)", yaxis_title="Frequency",
+                               height=500)
+        st.plotly_chart(var_chart, use_container_width=True)
+
+# ============================================================================
+# FOOTER
+# ============================================================================
+st.markdown(f"""
+<div class="footer">
+    <strong>LQ45 Financial Planning Engine by Kinaya Rafa</strong><br>
+    Data Period: July 2019 - February 2025 | 40 Constituent Stocks | 1.355 Trading Days<br>
+    Methodology: Crisis-Weighted Bootstrap Simulation (10.000 Paths)<br>
+    <span>Data compiled by wildangunawan/Dataset-Saham-IDX (GitHub) | IDX historical data</span><br>
+    <span>Disclaimer: Educational purposes only.</span>
+</div>
+""", unsafe_allow_html=True)
+
+print("Application initialized successfully")

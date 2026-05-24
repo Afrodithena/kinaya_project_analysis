@@ -22,7 +22,7 @@ A collection of data science projects by Kinaya Rafa, featuring financial planni
 
 | Project | Description | Key Features |
 |---------|-------------|--------------|
-| **Financial Planner** | LQ45 stock simulation for wedding, KPR, and education goals | Monte Carlo simulation (10,000 paths), Risk profiling (Conservative/Moderate/Aggressive), COVID-19 crisis weighting, Interactive Streamlit dashboard, What-If slider, Probability gauge |
+| **Financial Planner** | LQ45 stock simulation for wedding, KPR, and education goals | • Monte Carlo simulation (10,000 paths)<br>• Risk profiling (Conservative/Moderate/Aggressive)<br>• COVID-19 crisis weighting (3x sampling)<br>• Interactive Streamlit dashboard<br>• What-If slider & probability gauge<br>• Dividend impact analysis<br>• Foreign flow & OHLC explorer|
 | **Olist Logistics** | Brazilian e-commerce delivery route analysis to identify infrastructure bottlenecks | Route performance classification of 412 routes into Fast,Normal,Slow,Critical, XGBoost risk prediction with 78 percent ROC AUC, Supply demand gap analysis across 27 Brazilian states, DBSCAN clustering validation with silhouette score 0.387, What if simulation covering 355 routes and 29,664 orders, Cost benefit analysis proving warehouse investment is not feasible with negative 247.6 percent ROI|
 | **BNSP Certification** | Project for Associate Data Scientist certification | End-to-end data pipeline, Missing value imputation (median/mode), Feature engineering (discount_depth, price_ratio, is_on_season), Regression models (Linear Regression, Random Forest, XGBoost), Business recommendations, Exportable model (pickle) |
 
@@ -37,34 +37,23 @@ A collection of data science projects by Kinaya Rafa, featuring financial planni
 
 ---
 
+```markdown
 ## Quick Start
 
 ```bash
-# 1. Clone repository
+# Clone and install
 git clone https://github.com/Afrodithena/kinaya_project_analysis.git
 cd kinaya_project_analysis
-
-# 2. Install dependencies
 pip install -r requirements.txt
 
-# FINANCIAL PLANNER
+# Financial Planner (LQ45)
+# 1. Run lq45_data_processing.ipynb in Colab
+# 2. cd financial_planner && streamlit run app.py
 
-# 3. Prepare Data
-# Run 'lq45_data_processing.ipynb' in Google Colab first
-# This will generate cleaned stock data for 40 LQ45 companies
-# 4. Run Streamlit
-cd financial_planner
-streamlit run app.py
-
-# OLIST LOGISTICS
-
-# 3. Prepare Data
-# Run 'olist_data_processing.ipynb' in Google Colab first
-# This will generate all required .parquet files
-# Place generated files into: olist_logistic_engine/data/
-# 4. Run Streamlit 
-cd olist_logistic_engine
-streamlit run app.py
+# Olist Logistics
+# 1. Run olist_data_processing.ipynb in Colab
+# 2. Place .parquet files in olist_logistic_engine/data/
+# 3. cd olist_logistic_engine && streamlit run app.py
 ```
 ---
 ### Another Project Coming Soon! 🚀

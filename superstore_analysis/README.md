@@ -2,7 +2,7 @@
 
 Data cleaning, data modeling (Power Pivot, DAX), and what-if analysis using superstore dataset from kaggle (2015-2018). Tableau dashboards available separately.
 
-### What's in this repo
+### What's in this?
 
 | File | Description |
 |------|-------------|
@@ -23,6 +23,3 @@ Data cleaning, data modeling (Power Pivot, DAX), and what-if analysis using supe
 
 Excel (Power Query, Power Pivot, DAX) | Tableau Public
 
-### Author
-
-Kinaya Rafa | [GitHub](https://github.com/Afrodithena) | [LinkedIn](https://linkedin.com/in/kinaya-rafa)

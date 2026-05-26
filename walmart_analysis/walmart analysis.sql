@@ -7,7 +7,7 @@ SELECT DISTINCT payment_method FROM walmart;
 -- 1. Branch Performance Analysis
 -- 1a. Which branch contributes the highest percentage of total company sales revenue?
 SELECT SUM(total) AS total_sales
-FROM walmart; -- hasilnya single line, jumlah value dari kolom total (keseluruhan )
+FROM walmart; 
 SELECT 
     branch,
     ROUND(SUM(total), 2) AS branch_total,
